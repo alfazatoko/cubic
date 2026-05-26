@@ -815,11 +815,40 @@ const MainApp: React.FC<MainAppProps> = ({
     }
   }, [googleUid, targetStoreId])
 
-  const savePresets = (newPresets: any[]) => {
+  const savePresets = async (newPresets: any[]) => {
     setPresets(newPresets)
     if (googleUid) {
       const key = targetStoreId !== 'all' ? `alphaPro_${googleUid}_${targetStoreId}_presets` : `alphaPro_${googleUid}_presets`
       localStorage.setItem(key, JSON.stringify(newPresets))
+    }
+
+    // Auto-sync ke Supabase jika ada store aktif
+    if (targetStoreId && targetStoreId !== 'all') {
+      try {
+        const localCats = localStorage.getItem('alphaPro_categories');
+        const localConfigs = localStorage.getItem('alphaPro_categories_config');
+        const categoriesPreset = {
+          id: '___CATEGORIES_CONFIG___',
+          kategori: '___SYSTEM___',
+          keterangan: JSON.stringify({ cats: localCats, configs: localConfigs }),
+          modal: 0,
+          jual: 0
+        };
+        const presetsToUpload = [...newPresets.filter((p: any) => p.id !== '___CATEGORIES_CONFIG___'), categoriesPreset];
+
+        const isPin = localStorage.getItem(`alphaPro_${targetStoreId}_isPinEnabled`) !== 'false';
+        await supabase.from('store_settings').upsert({
+          store_id: targetStoreId,
+          cashiers: kasirList,
+          presets: presetsToUpload,
+          running_texts: runningTexts,
+          main_announcement: mainAnnouncement,
+          is_pin_enabled: isPin,
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error('Auto-sync preset gagal:', err);
+      }
     }
   }
 
