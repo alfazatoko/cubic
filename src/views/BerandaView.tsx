@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { formatRupiah, formatInputRupiah, cn, getLocalISOString, getLocalDateString, parseLocalISO } from '../lib/utils'
+import { formatRupiah, formatInputRupiah, cn, getLocalISOString, getLocalDateString, parseLocalISO, getCategories, getCategoriesConfig } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import TransactionForm from '../components/TransactionForm'
 import SummaryCards from '../components/SummaryCards'
@@ -661,6 +661,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
   const [showRincian, setShowRincian] = useState(false)
   const [showLainnya, setShowLainnya] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [newCatFormat, setNewCatFormat] = useState('nominal_admin')
 
   // Kasir Management State (Form inputs remain local)
   const [kasirFormId, setKasirFormId] = useState('')
@@ -817,7 +818,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
   ).reduce((s, t) => s + t.nominal, 0)
   
   const ownerPenjualanDigital = ownerTodayTxs.filter(t => 
-    ['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota'].includes(t.kategori) && 
+    (getCategories().includes(t.kategori) || ['Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB'].includes(t.kategori)) && 
     !(t.keterangan || '').includes('[KHUSUS]') && 
     !(t.keterangan || '').includes('[NON_TUNAI]')
   ).reduce((s, t) => s + t.nominal, 0)
@@ -833,7 +834,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
   
   // ownerSaldoBank calculation (Contribution to bank balance/plafon)
   const ownerTotalBankOut = ownerTodayTxs.filter(t => 
-    ['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota'].includes(t.kategori)
+    (getCategories().includes(t.kategori) || ['Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB'].includes(t.kategori))
   ).reduce((s, t) => s + t.nominal, 0)
   
   const ownerIsiBank = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO) && t.kategori === 'Isi Saldo Bank').reduce((s, t) => s + t.nominal, 0)
@@ -1214,6 +1215,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
               { id: 'view-owner-gaji', title: 'Gajih', desc: 'Data gaji kasir', icon: 'fa-dollar-sign', color: 'bg-green-600' },
               { id: 'view-owner-saldo', title: 'Saldo', desc: 'Atur modal kasir', icon: 'fa-wallet', color: 'bg-emerald-600' },
               { id: 'view-owner-audit', title: 'Audit', desc: 'Audit uang laci', icon: 'fa-file-signature', color: 'bg-purple-600' },
+              { id: 'view-owner-kategori', title: 'Kategori', desc: 'Edit Kategori Trx', icon: 'fa-tags', color: 'bg-blue-600' },
               { id: 'view-owner-backup', title: 'Backup', desc: 'Backup & reset', icon: 'fa-database', color: 'bg-red-600' },
               { id: 'view-akun', title: 'Setting', desc: 'Pengaturan app', icon: 'fa-gear', color: 'bg-slate-600' },
             ].map((item) => (
@@ -1249,7 +1251,9 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
             case 'gaji': return { title: 'DATA GAJI KASIR', color: 'from-green-600 to-green-800', icon: 'fa-dollar-sign', desc: 'Perhitungan dan riwayat penggajian kasir.' }
             case 'saldo': return { title: 'PENGATURAN SALDO', color: 'from-emerald-600 to-emerald-800', icon: 'fa-wallet', desc: 'Alokasi dan penambahan modal harian kasir.' }
             case 'audit': return { title: 'AUDIT KASIR', color: 'from-purple-600 to-purple-800', icon: 'fa-file-signature', desc: 'Pemeriksaan kesesuaian fisik uang di laci.' }
-            default: return { title: 'BACKUP & RESET', color: 'from-red-600 to-red-800', icon: 'fa-database', desc: 'Cadangkan data dan kembalikan ke pengaturan awal.' }
+            case 'kategori': return { title: 'PENGATURAN KATEGORI', color: 'from-blue-600 to-blue-800', icon: 'fa-tags', desc: 'Kelola daftar kategori transaksi.' }
+            case 'backup': return { title: 'BACKUP & RESET', color: 'from-red-600 to-red-800', icon: 'fa-database', desc: 'Cadangkan data dan kembalikan ke pengaturan awal.' }
+            default: return { title: 'PENGATURAN', color: 'from-gray-600 to-gray-800', icon: 'fa-gear', desc: 'Pengaturan lainnya.' }
           }
         };
         const { title, color, icon, desc } = getSubViewDetails();
@@ -1917,6 +1921,97 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                 </div>
               )}
 
+              {activeOwnerSubView === 'kategori' && (
+                <div className="space-y-4 animate-in slide-in-from-right duration-300">
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                    <div className="mb-6 pb-5 border-b border-gray-100">
+                      <h4 className="text-[12px] font-black text-gray-800 uppercase tracking-widest mb-3">Tambah Kategori Baru</h4>
+                      <div className="space-y-3">
+                        <input type="text" id="newCatName" placeholder="Nama Kategori (Misal: SEA BANK)" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-[11px] font-bold outline-none" />
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                           <button onClick={() => setNewCatFormat('nominal_admin')} className={cn("border rounded-xl p-2.5 text-center transition-all cursor-pointer", newCatFormat === 'nominal_admin' ? "bg-blue-600 text-white border-blue-600 shadow-md" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50")}>
+                             <p className="text-[10px] font-black uppercase">Format 1</p>
+                             <p className="text-[9px] font-bold opacity-90">NOMINAL & ADMIN</p>
+                           </button>
+
+                           <button onClick={() => setNewCatFormat('modal_jual')} className={cn("border rounded-xl p-2.5 text-center transition-all cursor-pointer", newCatFormat === 'modal_jual' ? "bg-blue-600 text-white border-blue-600 shadow-md" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50")}>
+                             <p className="text-[10px] font-black uppercase">Format 2</p>
+                             <p className="text-[9px] font-bold opacity-90">MODAL & HARGA JUAL</p>
+                           </button>
+                        </div>
+
+                        <button onClick={() => {
+                          const input = document.getElementById('newCatName') as HTMLInputElement;
+                          if (input && input.value.trim()) {
+                            const val = input.value.trim().toUpperCase();
+                            if (val.length < 2) return props.showToast("Nama terlalu pendek!");
+                            const cats = getCategories();
+                            if (cats.includes(val)) return props.showToast("Kategori sudah ada!");
+                            cats.push(val);
+                            localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
+                            const configs = getCategoriesConfig();
+                            configs[val] = newCatFormat;
+                            localStorage.setItem('alphaPro_categories_config', JSON.stringify(configs));
+                            input.value = '';
+                            props.showToast("Kategori Baru Ditambahkan");
+                          }
+                        }} className="w-full bg-emerald-500 text-white rounded-xl px-4 py-3 text-[11px] font-black uppercase shadow-sm hover:bg-emerald-600 transition-colors">
+                          <i className="fa-solid fa-plus mr-2"></i> Tambah Kategori
+                        </button>
+                      </div>
+                    </div>
+
+                    <h3 className="font-black text-[12px] text-gray-800 uppercase tracking-widest mb-1">Daftar Kategori Saat Ini</h3>
+                    <p className="text-[10px] font-bold text-gray-500 mb-4">Ubah posisi atau hapus kategori transaksi Anda.</p>
+                    <div className="space-y-2 mb-4">
+                      {getCategories().map((kat, idx) => (
+                        <div key={idx} className="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                           <div className="flex items-center gap-3">
+                             <div className="flex flex-col gap-1">
+                               <button onClick={() => {
+                                 const cats = getCategories();
+                                 if (idx > 0) {
+                                   const tmp = cats[idx]; cats[idx] = cats[idx-1]; cats[idx-1] = tmp;
+                                   localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
+                                   props.showToast("Berhasil dipindah ke atas");
+                                 }
+                               }} className="text-gray-400 hover:text-blue-500"><i className="fa-solid fa-chevron-up text-[10px]"></i></button>
+                               <button onClick={() => {
+                                 const cats = getCategories();
+                                 if (idx < cats.length - 1) {
+                                   const tmp = cats[idx]; cats[idx] = cats[idx+1]; cats[idx+1] = tmp;
+                                   localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
+                                   props.showToast("Berhasil dipindah ke bawah");
+                                 }
+                               }} className="text-gray-400 hover:text-blue-500"><i className="fa-solid fa-chevron-down text-[10px]"></i></button>
+                             </div>
+                             <div>
+                               <span className="text-[11px] font-black text-gray-800 uppercase">{kat}</span>
+                               <p className="text-[9px] font-bold text-blue-600 uppercase">
+                                 Format: {getCategoriesConfig()[kat] === 'modal_jual' ? 'MODAL & JUAL' : 'NOMINAL & ADMIN'}
+                               </p>
+                             </div>
+                           </div>
+                           <button onClick={() => {
+                              props.onConfirm('Hapus Kategori', `Hapus kategori ${kat}?`, () => {
+                                const cats = getCategories().filter(c => c !== kat);
+                                localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
+                                const configs = getCategoriesConfig();
+                                delete configs[kat];
+                                localStorage.setItem('alphaPro_categories_config', JSON.stringify(configs));
+                                props.showToast("Kategori Dihapus");
+                              });
+                           }} className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center hover:bg-red-200">
+                             <i className="fa-solid fa-trash text-[10px]"></i>
+                           </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeOwnerSubView === 'izin' && (
                 <div className="space-y-4">
                   {/* Form Input Izin */}
@@ -2448,7 +2543,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                     <i className="fa-solid fa-crown text-2xl text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]"></i>
                   </div>
                   <div>
-                    <h3 className="text-xl font-black text-white tracking-tight">Owner Control</h3>
+                    <h3 className="text-xl font-black text-white tracking-tight">Kepala Toko Control</h3>
                     <p className="text-[10px] text-blue-100/60 font-black uppercase tracking-[0.3em]">{props.storeName}</p>
                   </div>
                 </div>

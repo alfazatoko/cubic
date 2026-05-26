@@ -3,7 +3,7 @@ import { App as CapApp } from '@capacitor/app'
 import { Browser } from '@capacitor/browser'
 import { Capacitor } from '@capacitor/core'
 import { useRegisterSW } from 'virtual:pwa-register/react'
-import { parseNominal, formatRupiah, formatInputRupiah, cn, getLocalISOString, getLocalDateString } from './lib/utils'
+import { parseNominal, formatRupiah, formatInputRupiah, cn, getLocalISOString, getLocalDateString, getCategoriesConfig, getCategories } from './lib/utils'
 import type { Transaction } from './types'
 
 // Components
@@ -31,6 +31,8 @@ import VoucherView from './views/VoucherView'
 import KalenderView from './views/KalenderView'
 import NotaView from './views/NotaView'
 import OtomatisView from './views/OtomatisView'
+import AdminView from './views/AdminView'
+import LicenseScreen from './components/LicenseScreen'
 
 declare global {
   namespace JSX {
@@ -264,7 +266,12 @@ const App: React.FC = () => {
   }
 
   const handleLogoutGoogle = async () => {
+    const savedCats = localStorage.getItem('alphaPro_categories');
+    const savedConfigs = localStorage.getItem('alphaPro_categories_config');
     localStorage.clear()
+    if (savedCats) localStorage.setItem('alphaPro_categories', savedCats);
+    if (savedConfigs) localStorage.setItem('alphaPro_categories_config', savedConfigs);
+    
     setSelectedRole(null)
     setActiveStoreId('all')
     setActiveStore(null)
@@ -287,6 +294,42 @@ const App: React.FC = () => {
 
   // ── Show Selector Screen if role not selected ──
   if (!selectedRole) {
+    const isLicenseRequired = (() => {
+      try {
+        const sysConfig = localStorage.getItem('cubic_admin_config');
+        if (sysConfig) {
+          const config = JSON.parse(sysConfig);
+          return config.requireLicense ?? true;
+        }
+      } catch (e) {}
+      return true; // Default is true
+    })();
+
+    const hasActiveLicense = (() => {
+      try {
+        const activeString = localStorage.getItem('cubic_license_active');
+        if (activeString) {
+          const active = JSON.parse(activeString);
+          if (active.expiresAt && new Date(active.expiresAt) < new Date()) {
+            localStorage.removeItem('cubic_license_active');
+            return false;
+          }
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    })();
+
+    if (isLicenseRequired && !hasActiveLicense) {
+      return (
+        <LicenseScreen 
+          onValid={() => {
+            window.location.reload();
+          }} 
+        />
+      );
+    }
+
     return (
       <SelectorScreen 
         googleUid={googleSession.user.id} 
@@ -409,7 +452,10 @@ const MainApp: React.FC<MainAppProps> = ({
       'view-owner-izin': 'owner-izin',
       'view-owner-gaji': 'owner-gaji',
       'view-owner-backup': 'owner-backup',
-      'view-owner-saldo': 'owner-saldo'
+      'view-owner-saldo': 'owner-saldo',
+      'view-owner-audit': 'owner-audit',
+      'view-owner-kategori': 'owner-kategori',
+      'view-admin': 'admin'
     }
     const hashToView: Record<string, string> = Object.fromEntries(
       Object.entries(viewToHash).map(([v, h]) => [h, v])
@@ -418,7 +464,13 @@ const MainApp: React.FC<MainAppProps> = ({
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#/', '')
       if (hashToView[hash]) {
-        setActiveView(hashToView[hash])
+        const view = hashToView[hash];
+        if (view === 'view-admin' && Capacitor.getPlatform() !== 'web') {
+          setActiveView('view-beranda');
+          window.location.hash = '#/beranda';
+        } else {
+          setActiveView(view);
+        }
       } else if (hash === '' || hash === '/') {
         setActiveView('view-beranda')
       }
@@ -450,7 +502,10 @@ const MainApp: React.FC<MainAppProps> = ({
       'view-owner-izin': 'owner-izin',
       'view-owner-gaji': 'owner-gaji',
       'view-owner-backup': 'owner-backup',
-      'view-owner-saldo': 'owner-saldo'
+      'view-owner-saldo': 'owner-saldo',
+      'view-owner-audit': 'owner-audit',
+      'view-owner-kategori': 'owner-kategori',
+      'view-admin': 'admin'
     }
     const hash = viewToHash[activeView] || activeView.replace('view-', '')
     if (window.location.hash !== `#/${hash}`) {
@@ -537,10 +592,21 @@ const MainApp: React.FC<MainAppProps> = ({
 
     const isPin = localStorage.getItem(`alphaPro_${targetStoreId}_isPinEnabled`) !== 'false'
 
+    const localCats = localStorage.getItem('alphaPro_categories');
+    const localConfigs = localStorage.getItem('alphaPro_categories_config');
+    const categoriesPreset = {
+      id: '___CATEGORIES_CONFIG___',
+      kategori: '___SYSTEM___',
+      keterangan: JSON.stringify({ cats: localCats, configs: localConfigs }),
+      modal: 0,
+      jual: 0
+    };
+    const presetsToUpload = [...presets.filter(p => p.id !== '___CATEGORIES_CONFIG___'), categoriesPreset];
+
     const { error } = await supabase.from('store_settings').upsert({
       store_id: targetStoreId,
       cashiers: kasirList,
-      presets: presets,
+      presets: presetsToUpload,
       running_texts: runningTexts,
       main_announcement: mainAnnouncement,
       is_pin_enabled: isPin,
@@ -620,11 +686,30 @@ const MainApp: React.FC<MainAppProps> = ({
         }
       }
       if (data.presets) {
-        const local = localStorage.getItem(`alphaPro_${googleUid}_${targetStoreId}_presets`)
-        const remoteStr = JSON.stringify(data.presets)
-        if (local !== remoteStr) {
-          localStorage.setItem(`alphaPro_${googleUid}_${targetStoreId}_presets`, remoteStr)
-          setPresets(data.presets)
+        const catPreset = data.presets.find((p: any) => p.id === '___CATEGORIES_CONFIG___');
+        if (catPreset) {
+          try {
+            const parsed = JSON.parse(catPreset.keterangan);
+            if (parsed.cats) {
+              const currCats = localStorage.getItem('alphaPro_categories');
+              if (currCats !== parsed.cats) {
+                localStorage.setItem('alphaPro_categories', parsed.cats);
+                changed = true;
+              }
+            }
+            if (parsed.configs) {
+              const currConf = localStorage.getItem('alphaPro_categories_config');
+              if (currConf !== parsed.configs) {
+                localStorage.setItem('alphaPro_categories_config', parsed.configs);
+                changed = true;
+              }
+            }
+          } catch(e) {}
+        }
+        
+        const visiblePresets = data.presets.filter((p: any) => p.id !== '___CATEGORIES_CONFIG___');
+        if (JSON.stringify(visiblePresets) !== JSON.stringify(presets)) {
+          setPresets(visiblePresets)
           changed = true
         }
       }
@@ -1050,7 +1135,7 @@ const MainApp: React.FC<MainAppProps> = ({
       if (tx.kategori === 'Isi Saldo Bank') calcSaldoBank += tx.nominal
       if (tx.kategori === 'Isi Modal Tunai Kasir') calcKasModal += tx.nominal
       
-      if (['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota'].includes(tx.kategori)) {
+      if (getCategories().includes(tx.kategori) || ['Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB'].includes(tx.kategori)) {
         calcSaldoBank -= tx.nominal
         // Jika KHUSUS atau NON_TUNAI, masuk ke Kas Lainnya, bukan Penjualan Digital
         if (!(isKhusus || isNonTunai)) {
@@ -1129,7 +1214,7 @@ const MainApp: React.FC<MainAppProps> = ({
           if (tx.kategori === 'Isi Saldo Bank') sBank += tx.nominal;
           if (tx.kategori === 'Isi Modal Tunai Kasir') kMod += tx.nominal;
           
-          if (['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota'].includes(tx.kategori)) {
+          if (getCategories().includes(tx.kategori) || ['Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB'].includes(tx.kategori)) {
             sBank -= tx.nominal;
             if (!isLain) pDig += tx.nominal;
           }
@@ -1231,6 +1316,7 @@ const MainApp: React.FC<MainAppProps> = ({
     setConfirmDialog({ show: true, title, message, onConfirm })
   }
 
+
   const handleSimpanTransaksi = (options?: { activeTab: string, subTab: string, isAdminNonTunai: boolean }) => {
     if (isSaving) return
     const nominal = parseNominal(formNominal)
@@ -1253,7 +1339,8 @@ const MainApp: React.FC<MainAppProps> = ({
     let finalNominal = nominal;
     let finalAdmin = admin;
 
-    if (formKategori === 'Order Kuota') {
+    const catConfigs = getCategoriesConfig();
+    if (catConfigs[formKategori] === 'modal_jual') {
       finalAdmin = admin - nominal;
       finalNominal = nominal;
     }
@@ -1549,7 +1636,7 @@ const MainApp: React.FC<MainAppProps> = ({
   
   // Penjualan Digital: Transfer + DANA + FLIP + Kuota (Today Only, Cashier drawer only)
   const penjualanDigital = todayTransactions
-    .filter(t => ['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota'].includes(t.kategori) && !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]'))
+    .filter(t => (getCategories().includes(t.kategori) || ['Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB'].includes(t.kategori)) && !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]'))
     .reduce((s, t) => s + t.nominal, 0)
 
   // Saldo Real Aplikasi: Akumulasi dari input manual di Isi Saldo (Today Only)
@@ -1613,14 +1700,17 @@ const MainApp: React.FC<MainAppProps> = ({
                     'view-nota': 'Nota',
                     'view-otomatis': 'Otomatis',
                     'view-owner-monitor': 'Monitor Toko',
-                    'view-owner-laporan': 'Laporan Owner',
+                    'view-owner-laporan': 'Laporan Kepala Toko',
                     'view-owner-grafik': 'Grafik Penjualan',
                     'view-owner-performa': 'Performa Kasir',
                     'view-owner-absen': 'Absensi Karyawan',
                     'view-owner-izin': 'Izin Karyawan',
                     'view-owner-gaji': 'Penggajian',
                     'view-owner-backup': 'Backup & Restore',
-                    'view-owner-saldo': 'Manajemen Saldo'
+                    'view-owner-saldo': 'Manajemen Saldo',
+                    'view-owner-audit': 'Audit Laci',
+                    'view-owner-kategori': 'Kategori Transaksi',
+                    'view-admin': 'Panel Admin Developer'
                   };
                   return titles[activeView] || 'Dashboard';
                 })()}</h2>
@@ -1884,6 +1974,22 @@ const MainApp: React.FC<MainAppProps> = ({
                       activeStoreId={targetStoreId}
                     />
                   );
+                case 'view-admin':
+                  if (Capacitor.getPlatform() !== 'web') {
+                    return (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-900 text-slate-100 font-bold uppercase tracking-wider h-full">
+                        <i className="fa-solid fa-ban text-red-500 text-4xl mb-4"></i>
+                        Akses Ditolak (Khusus Browser PC)
+                      </div>
+                    );
+                  }
+                  return (
+                    <AdminView
+                      active={true}
+                      isPc={screenSize === 'pc'}
+                      setActiveView={setActiveView}
+                    />
+                  );
                 case 'view-owner-monitor':
                 case 'view-owner-laporan':
                 case 'view-owner-grafik':
@@ -1893,6 +1999,8 @@ const MainApp: React.FC<MainAppProps> = ({
                 case 'view-owner-gaji':
                 case 'view-owner-backup':
                 case 'view-owner-saldo':
+                case 'view-owner-audit':
+                case 'view-owner-kategori':
                   return (
                     <BerandaView
                       active={true}
@@ -2147,6 +2255,14 @@ const MainApp: React.FC<MainAppProps> = ({
             onConfirm={handleConfirm}
             activeStoreId={targetStoreId}
           />
+
+          {Capacitor.getPlatform() === 'web' && (
+            <AdminView 
+              active={activeView === 'view-admin'} 
+              isPc={screenSize === 'pc'} 
+              setActiveView={setActiveView} 
+            />
+          )}
 
           <Navigation activeView={activeView} setActiveView={setActiveView} />
         </>

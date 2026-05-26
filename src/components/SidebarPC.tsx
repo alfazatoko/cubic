@@ -34,7 +34,7 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
     { id: 'view-transaksi', label: 'Riwayat', icon: 'fa-clock' },
     { id: 'view-isi-saldo', label: 'Isi Saldo', icon: 'fa-wallet' },
     { id: 'view-laporan', label: 'Laporan', icon: 'fa-chart-simple' },
-    { id: 'view-akun', label: 'Akun & Owner', icon: 'fa-user-tie' },
+    { id: 'view-akun', label: 'Akun & Kepala Toko', icon: 'fa-user-tie' },
     { id: 'view-otomatis', label: 'Otomatis', icon: 'fa-wand-magic-sparkles' }
   ]
 
@@ -125,11 +125,11 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
         {kasirRole === 'owner' && (
           <div className="pt-4 mt-4 border-t border-slate-800/60">
             <span className="text-[8px] font-black text-amber-500 uppercase tracking-[0.2em] px-3 mb-2 block">
-              Panel Owner
+              Panel Kepala Toko
             </span>
             {[
               { id: 'view-owner-monitor', label: 'Monitor Kasir', icon: 'fa-users' },
-              { id: 'view-owner-laporan', label: 'Laporan Owner', icon: 'fa-file-lines' },
+              { id: 'view-owner-laporan', label: 'Laporan Kepala Toko', icon: 'fa-file-lines' },
               { id: 'view-owner-grafik', label: 'Grafik Penjualan', icon: 'fa-chart-simple' },
               { id: 'view-owner-performa', label: 'Performa Kasir', icon: 'fa-chart-line' },
               { id: 'view-owner-absen', label: 'Absensi Karyawan', icon: 'fa-fingerprint' },
@@ -137,6 +137,7 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
               { id: 'view-owner-gaji', label: 'Penggajian', icon: 'fa-dollar-sign' },
               { id: 'view-owner-saldo', label: 'Manajemen Saldo', icon: 'fa-wallet' },
               { id: 'view-owner-audit', label: 'Audit Laci', icon: 'fa-file-signature' },
+              { id: 'view-owner-kategori', label: 'Kategori Transaksi', icon: 'fa-tags' },
               { id: 'view-owner-backup', label: 'Backup & Reset', icon: 'fa-database' },
             ].map((item) => {
               const isActive = activeView === item.id;
@@ -192,7 +193,7 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
             "text-[6px] px-1.5 py-0.5 rounded-md font-black shrink-0 tracking-widest uppercase",
             kasirRole === 'owner' ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-blue-500/20 text-blue-400 border border-blue-500/30"
           )}>
-            {kasirRole === 'owner' ? 'OWNER' : 'KASIR'}
+            {kasirRole === 'owner' ? 'KEPALA TOKO' : 'KASIR'}
           </span>
         </div>
 

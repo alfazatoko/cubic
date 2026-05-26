@@ -5,6 +5,42 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export const getCategories = (): string[] => {
+  const saved = localStorage.getItem('alphaPro_categories');
+  if (saved) {
+    let parsed = JSON.parse(saved);
+    if (parsed.includes('TRANSFER BANK') || parsed.length === 4) {
+      parsed = parsed.map((c: string) => c === 'TRANSFER BANK' ? 'BANK BRI' : c);
+      if (!parsed.includes('SHOPEEPAY')) parsed.splice(2, 0, 'SHOPEEPAY');
+      localStorage.setItem('alphaPro_categories', JSON.stringify(parsed));
+      return parsed;
+    }
+    return parsed;
+  }
+  return ['BANK BRI', 'DANA', 'SHOPEEPAY', 'APLIKASI PPOB', 'ORDERKUOTA'];
+};
+
+export const getCategoriesConfig = (): Record<string, string> => {
+  const saved = localStorage.getItem('alphaPro_categories_config');
+  if (saved) {
+    let parsed = JSON.parse(saved);
+    if (parsed['TRANSFER BANK']) {
+      parsed['BANK BRI'] = parsed['TRANSFER BANK'];
+      delete parsed['TRANSFER BANK'];
+      if (!parsed['SHOPEEPAY']) parsed['SHOPEEPAY'] = 'nominal_admin';
+      localStorage.setItem('alphaPro_categories_config', JSON.stringify(parsed));
+    }
+    return parsed;
+  }
+  return {
+    'BANK BRI': 'nominal_admin',
+    'DANA': 'nominal_admin',
+    'SHOPEEPAY': 'nominal_admin',
+    'APLIKASI PPOB': 'modal_jual',
+    'ORDERKUOTA': 'modal_jual'
+  };
+};
+
 export const formatRupiah = (amount: number) => {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',

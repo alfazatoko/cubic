@@ -134,6 +134,17 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
   const [activeEditingCell, setActiveEditingCell] = useState<string | null>(null);
   const [selectedProviderTab, setSelectedProviderTab] = useState<string>('ALL');
 
+  const colLabels: Record<string, string> = {
+    produk: 'Produk',
+    awal: 'Awal',
+    akhir: 'Akhir',
+    laku: 'Laku',
+    modal: 'H.Modal',
+    harga: 'Harga',
+    total: 'Total',
+    qris: 'QRIS'
+  };
+
   const [visibleCols, setVisibleCols] = useState({
     produk: true,
     awal: true,
@@ -428,6 +439,25 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
                   {activeEditingCell === 'master' ? 'Batal Edit' : 'Edit Master'}
                 </button>
               </div>
+              {kasirRole === 'owner' && (
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
+                  <span className="text-[10px] font-black text-slate-600 dark:text-slate-400 uppercase tracking-wider">Kolom H.Modal</span>
+                  <button
+                    onClick={() => toggleCol('modal')}
+                    className={cn(
+                      "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                      visibleCols.modal ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                        visibleCols.modal ? "translate-x-4" : "translate-x-0"
+                      )}
+                    />
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden flex-grow flex flex-col min-h-[250px]">
@@ -496,7 +526,7 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
                       <th className="p-4 text-center">Stok Awal</th>
                       <th className="p-4 text-center">Stok Akhir</th>
                       <th className="p-4 text-center text-emerald-600 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/10">Laku</th>
-                      {kasirRole === 'owner' && <th className="p-4 text-right">Hrg Modal</th>}
+                      {kasirRole === 'owner' && visibleCols.modal && <th className="p-4 text-right">H.Modal</th>}
                       <th className="p-4 text-right">Harga</th>
                       <th className="p-4 text-right text-emerald-600 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/10">Total Nominal</th>
                       <th className="p-4 pr-6 text-center">QRIS</th>
@@ -509,7 +539,7 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
                         <React.Fragment key={provider}>
                           {selectedProviderTab === 'ALL' && (
                             <tr className={cn(getProviderColor(provider), "text-[9px] font-black uppercase tracking-widest border-y border-slate-100 dark:border-slate-700/50")}>
-                              <td colSpan={kasirRole === 'owner' ? 8 : 7} className="px-6 py-2">{provider}</td>
+                              <td colSpan={kasirRole === 'owner' && visibleCols.modal ? 8 : 7} className="px-6 py-2">{provider}</td>
                             </tr>
                           )}
                           {dataVoucher[provider].map((item, idx) => {
@@ -626,7 +656,7 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
                                   <span className={cn("text-xs font-black", laku > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-300 dark:text-slate-600")}>{laku}</span>
                                 </td>
 
-                                {kasirRole === 'owner' && (
+                                {kasirRole === 'owner' && visibleCols.modal && (
                                   <td className="p-3 text-right">
                                     {activeEditingCell === 'master' || activeEditingCell === `edit-${provider}-${item.id}` ? (
                                       <input
@@ -673,7 +703,7 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
                           })}
                           {kasirRole === 'owner' && (
                             <tr className="border-b border-slate-50 dark:border-slate-700/30">
-                              <td colSpan={kasirRole === 'owner' ? 8 : 7} className="p-3 text-center">
+                              <td colSpan={kasirRole === 'owner' && visibleCols.modal ? 8 : 7} className="p-3 text-center">
                                 <button
                                   onClick={() => handleAddProduct(provider)}
                                   className="text-[10px] font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-4 py-2 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors uppercase tracking-widest"
@@ -828,7 +858,7 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
                       : "bg-gray-100 text-gray-400 border-gray-200"
                   )}
                 >
-                  {col}
+                  {colLabels[col] || col}
                 </button>
               )
             })}
@@ -844,7 +874,7 @@ const VoucherView: React.FC<{ active: boolean; setActiveView: (v: string) => voi
                   {visibleCols.awal && <th className="p-1 text-center">Awal</th>}
                   {visibleCols.akhir && <th className="p-1 text-center">Akhir</th>}
                   {visibleCols.laku && <th className="p-1 text-center text-emerald-600 bg-emerald-50/50">Laku</th>}
-                  {kasirRole === 'owner' && visibleCols.modal && <th className="p-1 text-right">Modal</th>}
+                  {kasirRole === 'owner' && visibleCols.modal && <th className="p-1 text-right">H.Modal</th>}
                   {visibleCols.harga && <th className="p-1 text-right">Harga</th>}
                   {visibleCols.total && <th className="p-1 text-right text-emerald-600 bg-emerald-50/50">Total</th>}
                   {visibleCols.qris && <th className="p-2 text-center">QRIS</th>}

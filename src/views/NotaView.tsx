@@ -10,7 +10,7 @@ interface NotaItem {
 
 const NotaView: React.FC<{ active: boolean; setActiveView: (v: string) => void; showToast: (m: string) => void; onConfirm: (t: string, m: string, c: () => void) => void; isPc?: boolean }> = ({ active, setActiveView, isPc }) => {
   
-  const [shopName, setShopName] = useState("ALPHA - Agen BRILink");
+  const [shopName, setShopName] = useState("KASIR CUBIC");
   const [address, setAddress] = useState("Jl. Merdeka No. 123, Indonesia");
   const [items, setItems] = useState<NotaItem[]>([]);
   const [currentItem, setCurrentItem] = useState<NotaItem>({ nama: "", harga: "", jumlah: "" });

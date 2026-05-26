@@ -1,8 +1,8 @@
 export type TransactionCategory = 
-  | 'Transfer Bank' 
+  | 'TRANSFER BANK' 
   | 'DANA' 
-  | 'FLIP' 
-  | 'Order Kuota' 
+  | 'APLIKASI PPOB' 
+  | 'ORDERKUOTA' 
   | 'Tarik Tunai' 
   | 'Aksesoris'
   | 'Isi Saldo Bank'

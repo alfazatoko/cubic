@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react'
 import { formatInputRupiah, cn } from '../lib/utils'
+import { getCategories, getCategoriesConfig } from '../lib/utils'
 
 interface TransactionFormProps {
   kategori: string
@@ -109,8 +110,16 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       const cleanNominal = parseInt(nominal.replace(/[^0-9]/g, '')) || 0
       const cleanAdmin = parseInt(admin.replace(/[^0-9]/g, '')) || 0
       
-      if (cleanNominal <= 0 || cleanAdmin <= 0) {
-        setErrorMsg('Nominal & Admin Wajib diisi!')
+      if (cleanNominal <= 0 && cleanAdmin <= 0) {
+        setErrorMsg('Nominal/Admin Wajib diisi!')
+        return
+      }
+
+      const catConfigs = getCategoriesConfig();
+      const isModalJual = catConfigs[kategori] === 'modal_jual';
+
+      if (isModalJual && cleanAdmin < cleanNominal) {
+        setErrorMsg('Format Salah! Harga Jual harus lebih tinggi atau sama dengan Harga Modal.')
         return
       }
     }
@@ -204,8 +213,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
         {/* Category Select for DIGITAL only */}
         {activeMode === 'DIGITAL' && (
           <div className="animate-in fade-in slide-in-from-top-2 duration-300 mb-5">
-            <div className="grid grid-cols-4 gap-1.5">
-              {['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota'].map((cat, idx) => {
+            <div className="grid grid-cols-5 gap-1.5">
+              {getCategories().map((cat, idx) => {
                 const isActive = kategori === cat;
                 return (
                   <button 
@@ -222,10 +231,12 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                   >
                     {isActive && <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>}
                     <div className="flex flex-col items-center justify-center gap-1.5">
-                      {cat === 'Transfer Bank' && <i className="fa-solid fa-building-columns text-[13px]"></i>}
+                      {cat === 'BANK BRI' && <i className="fa-solid fa-building-columns text-[13px]"></i>}
                       {cat === 'DANA' && <i className="fa-solid fa-wallet text-[13px]"></i>}
-                      {cat === 'FLIP' && <i className="fa-solid fa-bolt text-[13px]"></i>}
-                      {cat === 'Order Kuota' && <i className="fa-solid fa-wifi text-[13px]"></i>}
+                      {cat === 'SHOPEEPAY' && <i className="fa-solid fa-bag-shopping text-[13px]"></i>}
+                      {cat === 'APLIKASI PPOB' && <i className="fa-solid fa-bolt text-[13px]"></i>}
+                      {cat === 'ORDERKUOTA' && <i className="fa-solid fa-wifi text-[13px]"></i>}
+                      {!['BANK BRI', 'DANA', 'SHOPEEPAY', 'APLIKASI PPOB', 'ORDERKUOTA'].includes(cat) && <i className="fa-solid fa-cube text-[13px]"></i>}
                       <span className="text-center leading-tight text-[8px] px-0.5">{cat}</span>
                     </div>
                   </button>
@@ -288,7 +299,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       key={p.id}
                       onClick={() => {
                         setKeterangan(`${kategori.toUpperCase()} = ${p.keterangan.toUpperCase()}`);
-                        if (pCat === 'Order Kuota') {
+                        if (getCategoriesConfig()[pCat] === 'modal_jual') {
                           setNominal(p.modal.toLocaleString('id-ID').replace(/,/g, '.'));
                           setAdmin(p.jual.toLocaleString('id-ID').replace(/,/g, '.'));
                           adminRef.current?.focus();
@@ -299,7 +310,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       }}
                       className="bg-purple-100 hover:bg-purple-200 text-purple-700 text-[9px] font-black uppercase tracking-tighter px-2 py-1 rounded-md transition-all text-left"
                     >
-                      {pCat === 'Order Kuota' 
+                      {getCategoriesConfig()[pCat] === 'modal_jual' 
                         ? `${p.keterangan} (M:${p.modal / 1000}k J:${p.jual / 1000}k)` 
                         : p.keterangan}
                     </button>
@@ -315,7 +326,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
             <div className="flex justify-between items-center mb-1.5 px-1">
                 <label className="flex items-center text-[10px] font-black text-gray-700 uppercase tracking-widest gap-1.5 whitespace-nowrap">
                   <i className="fa-solid fa-coins text-yellow-500"></i>
-                  {kategori === 'Order Kuota' ? 'Modal' : 'Nominal'}
+                  {getCategoriesConfig()[kategori] === 'modal_jual' ? 'Modal' : 'Nominal'}
                 </label>
             </div>
             <div className="relative">
@@ -336,7 +347,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
             <div className="flex items-center gap-2 mb-1.5 px-1">
               <label className="flex items-center text-[10px] font-black text-gray-700 uppercase tracking-widest gap-1.5">
                 <i className="fa-solid fa-hand-holding-dollar text-purple-500"></i>
-                {kategori === 'Order Kuota' ? 'Jual' : 'Admin'}
+                {getCategoriesConfig()[kategori] === 'modal_jual' ? 'Jual' : 'Admin'}
               </label>
                 <label className="flex items-center gap-1 cursor-pointer whitespace-nowrap">
                   <input

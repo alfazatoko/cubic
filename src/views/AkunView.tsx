@@ -81,6 +81,38 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
   const [editKasirPin, setEditKasirPin] = useState('')
   const [showKasirPin, setShowKasirPin] = useState(false)
 
+  // State for Saran & Kritik
+  const [saranText, setSaranText] = useState('')
+  const [isSendingSaran, setIsSendingSaran] = useState(false)
+
+  const [supportWa, setSupportWa] = useState(localStorage.getItem('cubic_support_wa') || '6287824889706')
+  const [showBantuanOptions, setShowBantuanOptions] = useState(false)
+  const [showSaranOptions, setShowSaranOptions] = useState(false)
+
+  const handleKirimSaran = () => {
+    if (!saranText.trim()) return;
+    setIsSendingSaran(true);
+    setTimeout(() => {
+      try {
+        const stored = localStorage.getItem('cubic_admin_feedbacks');
+        const feeds = stored ? JSON.parse(stored) : [];
+        feeds.unshift({
+          id: Date.now().toString(),
+          date: new Date().toISOString(),
+          sender: `${props.kasirName || 'Kasir'} - ${props.storeName || 'Toko'}`,
+          message: saranText,
+          status: 'unread'
+        });
+        localStorage.setItem('cubic_admin_feedbacks', JSON.stringify(feeds));
+        setSaranText('');
+        alert('Saran & kritik berhasil dikirim ke developer!');
+      } catch (err) {
+        alert('Gagal mengirim saran');
+      }
+      setIsSendingSaran(false);
+    }, 500);
+  };
+
   // State untuk edit PIN Owner
   const [ownerPinOld, setOwnerPinOld] = useState('')
   const [ownerPinNew, setOwnerPinNew] = useState('')
@@ -198,7 +230,7 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ALPHA_BACKUP_${new Date().getTime()}.json`
+    a.download = `CUBIC_BACKUP_${new Date().getTime()}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -236,7 +268,7 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ALFAZA_TRANSAKSI_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `CUBIC_TRANSAKSI_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -262,13 +294,14 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
   if (props.isPc) {
     const tabs = props.kasirRole === 'owner' ? [
       { id: 'profil', label: 'Profil Toko', icon: 'fa-user-pen', color: 'emerald' },
-      { id: 'keamanan', label: 'Keamanan & Akses', icon: 'fa-shield-halved', color: 'blue' },
+      { id: 'saran', label: 'Saran & Kritik', icon: 'fa-comment-dots', color: 'blue' },
       { id: 'promo', label: 'Tampilan & Promo', icon: 'fa-bullhorn', color: 'orange' },
       { id: 'pantau', label: 'Pantau Dashboard', icon: 'fa-eye', color: 'indigo' },
       { id: 'backup', label: 'Backup & Reset', icon: 'fa-cloud-arrow-down', color: 'red' },
       { id: 'cloud', label: 'Sinkronisasi Cloud', icon: 'fa-cloud', color: 'purple' },
     ] : [
       { id: 'kasirSelf', label: 'PIN & Nama Kasir', icon: 'fa-user-lock', color: 'indigo' },
+      { id: 'saran', label: 'Saran & Kritik', icon: 'fa-comment-dots', color: 'blue' },
       { id: 'cloud', label: 'Sinkronisasi Cloud', icon: 'fa-cloud', color: 'purple' },
     ]
 
@@ -440,9 +473,22 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
                             }}
                             placeholder="Contoh: Pembukuan Agen Brilink & Konter"
                             disabled={props.activeStoreId === 'all'}
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800 outline-none transition-all"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800 outline-none transition-all mb-4"
                           />
                         </div>
+
+                        <div>
+                            <label className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-2 ml-1">Nomor WA Bantuan</label>
+                            <input
+                              type="text"
+                              value={supportWa}
+                              onChange={(e) => setSupportWa(e.target.value.replace(/\D/g, ''))}
+                              onBlur={() => localStorage.setItem('cubic_support_wa', supportWa)}
+                              placeholder="628..."
+                              disabled={props.activeStoreId === 'all'}
+                              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800 outline-none transition-all"
+                            />
+                          </div>
                       </div>
                     </div>
                   </div>
@@ -501,15 +547,15 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
                     </div>
                   </div>
 
-                  {/* Card Edit PIN Owner */}
+                  {/* Card Edit PIN Kepala Toko */}
                   <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 border border-slate-100 dark:border-slate-700 shadow-sm">
                     <div className="flex items-center gap-3 mb-1">
                       <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
                         <i className="fa-solid fa-user-shield text-sm"></i>
                       </div>
                       <div>
-                        <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest">Ganti PIN Owner</h3>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Ubah PIN masuk khusus akun Owner</p>
+                        <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest">Ganti PIN Kepala Toko</h3>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Ubah PIN masuk khusus akun Kepala Toko</p>
                       </div>
                     </div>
 
@@ -578,7 +624,7 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
                         style={{ color: '#ffffff' }}
                       >
                         <i className="fa-solid fa-shield-halved"></i>
-                        Simpan PIN Owner Baru
+                        Simpan PIN Kepala Toko Baru
                       </button>
                     </div>
                   </div>
@@ -746,6 +792,31 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
                 </div>
               )}
 
+              {activeTab === 'saran' && (
+                <div className="space-y-6 animate-in fade-in duration-300">
+                  <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 border border-slate-100 dark:border-slate-700 shadow-sm w-full">
+                    <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest mb-1">Chat Saran & Kritik</h3>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-6 font-bold uppercase">Kirim pesan langsung ke developer aplikasi</p>
+
+                    <textarea
+                      value={saranText}
+                      onChange={(e) => setSaranText(e.target.value)}
+                      placeholder="Tulis saran, kritik, atau temuan bug di sini..."
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3.5 text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800 outline-none transition-all resize-none min-h-[120px] mb-4"
+                    />
+                    <button
+                      onClick={handleKirimSaran}
+                      disabled={isSendingSaran || !saranText.trim()}
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black py-4 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 shadow-md flex items-center justify-center gap-2"
+                      style={{ color: '#ffffff' }}
+                    >
+                      <i className={isSendingSaran ? "fa-solid fa-circle-notch fa-spin" : "fa-solid fa-paper-plane"}></i>
+                      {isSendingSaran ? 'Mengirim...' : 'Kirim Pesan'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'cloud' && (
                 <div className="space-y-6 animate-in fade-in duration-300">
                   <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 border border-slate-100 dark:border-slate-700 shadow-sm">
@@ -892,7 +963,7 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
                 <div className="flex items-center gap-1 mt-1">
                   <span className="text-white text-[10px] font-black">{props.kasirName}</span>
                   <span className={cn("text-[7px] px-1.5 py-0.5 rounded-full font-black", props.kasirRole === 'owner' ? "bg-amber-400 text-amber-900" : "bg-white/25 text-white")}>
-                    {props.kasirRole === 'owner' ? 'OWNER' : 'KASIR'}
+                    {props.kasirRole === 'owner' ? 'KEPALA TOKO' : 'KASIR'}
                   </span>
                 </div>
               </div>
@@ -929,7 +1000,7 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
           {/* Owner Only Settings */}
           {props.kasirRole === 'owner' && (
             <div className="mb-6 space-y-3">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Pengaturan Owner</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Pengaturan Kepala Toko</p>
 
               <div className="bg-white border border-gray-100 p-3.5 rounded-2xl shadow-sm mb-3 flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center shrink-0">
@@ -1023,123 +1094,51 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
               </div>
 
 
-              {/* Kategori: Keamanan & Akses */}
+              {/* Kategori: Saran & Kritik */}
               <div className="group">
                 <button
-                  onClick={() => setOpenCategory(openCategory === 'keamanan' ? null : 'keamanan')}
+                  onClick={() => setOpenCategory(openCategory === 'saran' ? null : 'saran')}
                   className={cn(
                     "w-full flex items-center justify-between p-4 rounded-2xl transition-all border",
-                    openCategory === 'keamanan' ? "bg-blue-600 text-white border-blue-600 shadow-lg" : "bg-white text-gray-800 border-gray-100 shadow-sm"
+                    openCategory === 'saran' ? "bg-blue-600 text-white border-blue-600 shadow-lg" : "bg-white text-gray-800 border-gray-100 shadow-sm"
                   )}
                 >
                   <div className="flex items-center gap-3">
                     <div className={cn(
                       "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
-                      openCategory === 'keamanan' ? "bg-white/20 text-white" : "bg-blue-50 text-blue-600"
+                      openCategory === 'saran' ? "bg-white/20 text-white" : "bg-blue-50 text-blue-600"
                     )}>
-                      <i className="fa-solid fa-shield-halved text-xs"></i>
+                      <i className="fa-solid fa-comment-dots text-xs"></i>
                     </div>
-                    <span className="text-[11px] font-black uppercase tracking-widest">Keamanan & Akses</span>
+                    <span className="text-[11px] font-black uppercase tracking-widest">Saran & Kritik</span>
                   </div>
                   <i className={cn(
                     "fa-solid fa-chevron-down text-[10px] transition-transform duration-300",
-                    openCategory === 'keamanan' && "rotate-180"
+                    openCategory === 'saran' && "rotate-180"
                   )}></i>
                 </button>
 
-                {openCategory === 'keamanan' && (
-                  <div className="mt-2 p-5 bg-blue-50/50 border border-blue-100 rounded-[2rem] animate-in slide-in-from-top-2 duration-300 overflow-hidden space-y-5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-blue-600 shadow-sm border border-blue-100">
-                          <i className="fa-solid fa-key text-xs"></i>
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-gray-800">Gunakan PIN Masuk</p>
-                          <p className="text-[9px] text-gray-500 font-medium">Wajibkan PIN saat login</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={togglePin}
-                        className={cn(
-                          "w-12 h-6 rounded-full p-1 transition-all duration-300 relative",
-                          isPinEnabled ? "bg-blue-600" : "bg-gray-300"
-                        )}
-                      >
-                        <div className={cn(
-                          "w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300",
-                          isPinEnabled ? "translate-x-6" : "translate-x-0"
-                        )}></div>
-                      </button>
+                {openCategory === 'saran' && (
+                  <div className="mt-2 p-5 bg-blue-50/50 border border-blue-100 rounded-[2rem] animate-in slide-in-from-top-2 duration-300 space-y-4">
+                    <div>
+                      <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Kirim pesan ke developer</p>
+                      <textarea
+                        value={saranText}
+                        onChange={(e) => setSaranText(e.target.value)}
+                        placeholder="Tulis saran, kritik, atau temuan bug di sini..."
+                        className="w-full bg-white border border-blue-100 rounded-xl px-4 py-3 text-xs font-black text-gray-900 focus:ring-4 focus:ring-blue-50 transition-all outline-none resize-none min-h-[100px]"
+                        style={{ color: '#000000', WebkitTextFillColor: '#000000' }}
+                      />
                     </div>
-
-                    {/* Ganti PIN Owner */}
-                    {props.kasirRole === 'owner' && (
-                      <div className="border-t border-blue-100 pt-4 space-y-3">
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className="w-7 h-7 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
-                            <i className="fa-solid fa-user-shield text-xs"></i>
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-gray-800">Ganti PIN Owner</p>
-                            <p className="text-[9px] text-gray-500 font-medium">Ubah PIN masuk akun Owner</p>
-                          </div>
-                        </div>
-                        <div className="relative">
-                          <input
-                            type={showOwnerPin ? 'text' : 'password'}
-                            inputMode="numeric"
-                            maxLength={8}
-                            value={ownerPinOld}
-                            onChange={e => setOwnerPinOld(e.target.value.replace(/\D/g, ''))}
-                            placeholder="PIN Lama"
-                            className="w-full bg-white border border-blue-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-900 outline-none focus:ring-4 focus:ring-blue-50 tracking-widest"
-                          />
-                          <button type="button" onClick={() => setShowOwnerPin(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                            <i className={showOwnerPin ? 'fa-solid fa-eye-slash text-xs' : 'fa-solid fa-eye text-xs'}></i>
-                          </button>
-                        </div>
-                        <input
-                          type={showOwnerPin ? 'text' : 'password'}
-                          inputMode="numeric"
-                          maxLength={8}
-                          value={ownerPinNew}
-                          onChange={e => setOwnerPinNew(e.target.value.replace(/\D/g, ''))}
-                          placeholder="PIN Baru (min. 4 digit)"
-                          className="w-full bg-white border border-blue-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-900 outline-none focus:ring-4 focus:ring-blue-50 tracking-widest"
-                        />
-                        <input
-                          type={showOwnerPin ? 'text' : 'password'}
-                          inputMode="numeric"
-                          maxLength={8}
-                          value={ownerPinConfirm}
-                          onChange={e => setOwnerPinConfirm(e.target.value.replace(/\D/g, ''))}
-                          placeholder="Konfirmasi PIN Baru"
-                          className="w-full bg-white border border-blue-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-900 outline-none focus:ring-4 focus:ring-blue-50 tracking-widest"
-                        />
-                        <button
-                          onClick={() => {
-                            if (!ownerPinNew || ownerPinNew.length < 4) return alert('PIN baru minimal 4 digit!');
-                            if (ownerPinNew !== ownerPinConfirm) return alert('Konfirmasi PIN tidak cocok!');
-                            const ownerAcc = props.kasirList?.['owner'];
-                            if (ownerAcc && ownerAcc.pin && ownerAcc.pin !== ownerPinOld) return alert('PIN lama tidak sesuai!');
-                            if (props.onSaveCashierSelf) {
-                              props.onSaveCashierSelf('owner', { name: 'Owner', pin: ownerPinNew })
-                                .then(() => {
-                                  setOwnerPinOld(''); setOwnerPinNew(''); setOwnerPinConfirm('');
-                                  alert('PIN Owner berhasil diubah!');
-                                })
-                                .catch((err: any) => alert(err.message || 'Gagal menyimpan PIN'));
-                            }
-                          }}
-                          className="w-full bg-amber-600 hover:bg-amber-700 text-white font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
-                          style={{ color: '#ffffff' }}
-                        >
-                          <i className="fa-solid fa-shield-halved"></i>
-                          Simpan PIN Owner
-                        </button>
-                      </div>
-                    )}
+                    <button
+                      onClick={handleKirimSaran}
+                      disabled={isSendingSaran || !saranText.trim()}
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
+                      style={{ color: '#ffffff' }}
+                    >
+                      <i className={isSendingSaran ? "fa-solid fa-circle-notch fa-spin" : "fa-solid fa-paper-plane"}></i>
+                      {isSendingSaran ? 'Mengirim...' : 'Kirim Pesan'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -1353,6 +1352,55 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
             </div>
           )}
 
+          {/* Kategori: Saran & Kritik (Semua role: Owner & Kasir) */}
+          <div className="group mb-3">
+            <button
+              onClick={() => setOpenCategory(openCategory === 'saran' ? null : 'saran')}
+              className={cn(
+                "w-full flex items-center justify-between p-4 rounded-2xl transition-all border",
+                openCategory === 'saran' ? "bg-blue-600 text-white border-blue-600 shadow-lg" : "bg-white text-gray-800 border-gray-100 shadow-sm"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                  openCategory === 'saran' ? "bg-white/20 text-white" : "bg-blue-50 text-blue-600"
+                )}>
+                  <i className="fa-solid fa-comment-dots text-xs"></i>
+                </div>
+                <span className="text-[11px] font-black uppercase tracking-widest">Saran & Kritik</span>
+              </div>
+              <i className={cn(
+                "fa-solid fa-chevron-down text-[10px] transition-transform duration-300",
+                openCategory === 'saran' && "rotate-180"
+              )}></i>
+            </button>
+
+            {openCategory === 'saran' && (
+              <div className="mt-2 p-5 bg-blue-50/50 border border-blue-100 rounded-[2rem] animate-in slide-in-from-top-2 duration-300 space-y-4">
+                <div>
+                  <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Kirim pesan ke developer</p>
+                  <textarea
+                    value={saranText}
+                    onChange={(e) => setSaranText(e.target.value)}
+                    placeholder="Tulis saran, kritik, atau temuan bug di sini..."
+                    className="w-full bg-white border border-blue-100 rounded-xl px-4 py-3 text-xs font-black text-gray-900 focus:ring-4 focus:ring-blue-50 transition-all outline-none resize-none min-h-[100px]"
+                    style={{ color: '#000000', WebkitTextFillColor: '#000000' }}
+                  />
+                </div>
+                <button
+                  onClick={handleKirimSaran}
+                  disabled={isSendingSaran || !saranText.trim()}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
+                  style={{ color: '#ffffff' }}
+                >
+                  <i className={isSendingSaran ? "fa-solid fa-circle-notch fa-spin" : "fa-solid fa-paper-plane"}></i>
+                  {isSendingSaran ? 'Mengirim...' : 'Kirim Pesan'}
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Kategori: Sinkronisasi Cloud (Semua role: Owner & Kasir) */}
           <div className="group">
             <button
@@ -1527,21 +1575,64 @@ const AkunView: React.FC<AkunViewProps> = (props) => {
 
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Menu Akun</p>
 
-          <button className="w-full bg-white border border-gray-100 rounded-2xl font-semibold py-4 px-5 text-sm flex items-center justify-between shadow-sm hover:bg-gray-50 transition-all">
-            <div className="flex items-center gap-3">
-              <i className="fa-solid fa-circle-question text-blue-500"></i>
-              <span>Bantuan & Support</span>
+          <div className="flex flex-col gap-3 mb-6">
+            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden transition-all">
+              <button 
+                onClick={() => setShowBantuanOptions(!showBantuanOptions)}
+                className="w-full font-semibold py-4 px-5 text-sm flex items-center justify-between hover:bg-gray-50 transition-all"
+              >
+                <div className="flex items-center gap-3">
+                  <i className="fa-solid fa-circle-question text-blue-500"></i>
+                  <span>Bantuan & Support</span>
+                </div>
+                <i className={cn("fa-solid text-[10px] text-gray-300 transition-transform", showBantuanOptions ? "fa-chevron-down" : "fa-chevron-right")}></i>
+              </button>
+              
+              {showBantuanOptions && (
+                <div className="px-5 pb-4 pt-1 flex gap-3 animate-in slide-in-from-top-2 duration-300 border-t border-gray-50 bg-gray-50/50">
+                  <a href={`https://wa.me/${supportWa}`} target="_blank" rel="noreferrer" className="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all shadow-sm">
+                    <i className="fa-brands fa-whatsapp text-sm"></i> WhatsApp
+                  </a>
+                </div>
+              )}
             </div>
-            <i className="fa-solid fa-chevron-right text-[10px] text-gray-300"></i>
-          </button>
 
-          <button className="w-full bg-white border border-gray-100 rounded-2xl font-semibold py-4 px-5 text-sm flex items-center justify-between shadow-sm hover:bg-gray-50 transition-all">
-            <div className="flex items-center gap-3">
-              <i className="fa-solid fa-shield-halved text-emerald-500"></i>
-              <span>Keamanan</span>
+            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden transition-all">
+              <button 
+                onClick={() => setShowSaranOptions(!showSaranOptions)}
+                className="w-full font-semibold py-4 px-5 text-sm flex items-center justify-between hover:bg-gray-50 transition-all"
+              >
+                <div className="flex items-center gap-3">
+                  <i className="fa-solid fa-comment-dots text-emerald-500"></i>
+                  <span>Saran & Kritik</span>
+                </div>
+                <i className={cn("fa-solid text-[10px] text-gray-300 transition-transform", showSaranOptions ? "fa-chevron-down" : "fa-chevron-right")}></i>
+              </button>
+              
+              {showSaranOptions && (
+                <div className="px-5 pb-4 pt-3 flex flex-col gap-3 animate-in slide-in-from-top-2 duration-300 border-t border-gray-50 bg-gray-50/50">
+                  <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Kirim pesan ke developer</p>
+                  <textarea
+                    value={saranText}
+                    onChange={(e) => setSaranText(e.target.value)}
+                    placeholder="Tulis saran, kritik, atau laporan bug..."
+                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs font-semibold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all resize-none min-h-[80px]"
+                  />
+                  <button
+                    onClick={() => {
+                      handleKirimSaran();
+                      if (saranText.trim()) setShowSaranOptions(false);
+                    }}
+                    disabled={isSendingSaran || !saranText.trim()}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 shadow-md flex items-center justify-center gap-2"
+                  >
+                    <i className={isSendingSaran ? "fa-solid fa-circle-notch fa-spin" : "fa-solid fa-paper-plane"}></i>
+                    {isSendingSaran ? 'Mengirim...' : 'Kirim Pesan'}
+                  </button>
+                </div>
+              )}
             </div>
-            <i className="fa-solid fa-chevron-right text-[10px] text-gray-300"></i>
-          </button>
+          </div>
 
           {/* Tombol Simpan Perubahan (Visual Confirmation) */}
           <button

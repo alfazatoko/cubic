@@ -1,3 +1,4 @@
+import { getCategories } from '../lib/utils';
 import React, { useState, useEffect } from 'react'
 import { formatRupiah, cn, parseLocalISO, getLocalDateString } from '../lib/utils'
 import type { Transaction } from '../types'
@@ -365,7 +366,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                       <div className="fixed inset-0 z-30" onClick={() => setIsPcKategoriOpen(false)} />
                       
                       <div className="absolute top-full left-0 mt-1.5 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg p-3.5 z-40 space-y-2 max-h-[250px] overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150">
-                        {['Semua', 'Transfer Bank', 'DANA', 'FLIP', 'Order Kuota', 'Tarik Tunai', 'Aksesoris'].map(cat => {
+                        {['Semua', ...getCategories(), 'Tarik Tunai', 'Aksesoris'].map(cat => {
                           const isChecked = props.filterKategori.includes(cat);
                           return (
                             <label key={cat} className="flex items-center gap-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 p-1.5 rounded-lg transition-colors text-left">
@@ -533,10 +534,10 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                             <td className="py-3.5 px-5">
                               {(() => {
                                 let badgeStyle = "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
-                                if (t.kategori === 'Transfer Bank') badgeStyle = "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/30";
+                                if (t.kategori === 'TRANSFER BANK' || t.kategori === 'BANK BRI') badgeStyle = "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/30";
                                 else if (t.kategori === 'DANA') badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30";
-                                else if (t.kategori === 'FLIP') badgeStyle = "bg-cyan-50 text-cyan-700 border-cyan-100 dark:bg-cyan-950/30 dark:text-cyan-400 dark:border-cyan-900/30";
-                                else if (t.kategori === 'Order Kuota') badgeStyle = "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/30";
+                                else if (t.kategori === 'APLIKASI PPOB') badgeStyle = "bg-cyan-50 text-cyan-700 border-cyan-100 dark:bg-cyan-950/30 dark:text-cyan-400 dark:border-cyan-900/30";
+                                else if (t.kategori === 'ORDERKUOTA') badgeStyle = "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/30";
                                 else if (t.kategori === 'Tarik Tunai') badgeStyle = "bg-rose-50 text-rose-700 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/30";
                                 else if (t.kategori === 'Aksesoris') badgeStyle = "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100 dark:bg-fuchsia-950/30 dark:text-fuchsia-400 dark:border-fuchsia-900/30";
                                 
@@ -1022,7 +1023,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
               <div>
                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Jenis Kategori</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {['Semua', 'Transfer Bank', 'DANA', 'FLIP', 'Order Kuota', 'Tarik Tunai', 'Aksesoris'].map(cat => (
+                  {['Semua', ...getCategories(), 'Tarik Tunai', 'Aksesoris'].map(cat => (
                     <label key={cat} className="flex items-center gap-2 cursor-pointer">
                       <input 
                         type="checkbox" 

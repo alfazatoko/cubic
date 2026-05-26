@@ -1,3 +1,4 @@
+import { getCategories } from '../lib/utils';
 import React, { useState, useEffect } from 'react'
 import { cn, formatInputRupiah, parseNominal } from '../lib/utils'
 import type { PresetOtomatis } from '../types'
@@ -21,7 +22,7 @@ interface OtomatisViewProps {
 
 const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [formKategori, setFormKategori] = useState('Order Kuota')
+  const [formKategori, setFormKategori] = useState('ORDERKUOTA')
   const [formKeterangan, setFormKeterangan] = useState('')
   const [formModal, setFormModal] = useState('')
   const [formJual, setFormJual] = useState('')
@@ -50,7 +51,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
     let modalNum = 0;
     let jualNum = 0;
 
-    if (formKategori === 'Order Kuota') {
+    if (formKategori === 'ORDERKUOTA') {
       modalNum = parseNominal(formModal)
       jualNum = parseNominal(formJual)
       if (modalNum <= 0) return props.showToast('Harga Modal tidak valid!')
@@ -83,7 +84,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
 
   const handleEdit = (p: PresetOtomatis) => {
     setEditingId(p.id)
-    setFormKategori(p.kategori || 'Order Kuota')
+    setFormKategori(p.kategori || 'ORDERKUOTA')
     setFormKeterangan(p.keterangan)
     setFormModal(p.modal.toLocaleString('id-ID').replace(/,/g, '.'))
     setFormJual(p.jual.toLocaleString('id-ID').replace(/,/g, '.'))
@@ -109,7 +110,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
 
   const resetForm = () => {
     setEditingId(null)
-    setFormKategori('Order Kuota')
+    setFormKategori('ORDERKUOTA')
     setFormKeterangan('')
     setFormModal('')
     setFormJual('')
@@ -173,7 +174,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-1">Kategori Transaksi</label>
                   <div className="flex flex-wrap gap-1.5">
-                    {['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota', 'Tarik Tunai'].map((kat) => (
+                    {[...getCategories(), 'Tarik Tunai'].map((kat) => (
                       <button
                         key={kat}
                         onClick={() => setFormKategori(kat)}
@@ -195,7 +196,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
                   <label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-1">Keterangan / Nama Produk</label>
                   <input
                     type="text"
-                    placeholder={formKategori === 'Order Kuota' ? "Contoh: Token Listrik" : "Contoh: gopay"}
+                    placeholder={formKategori === 'ORDERKUOTA' ? "Contoh: Token Listrik" : "Contoh: gopay"}
                     value={formKeterangan}
                     onChange={(e) => setFormKeterangan(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800/20"
@@ -205,7 +206,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
                   </p>
                 </div>
 
-                {formKategori === 'Order Kuota' && (
+                {formKategori === 'ORDERKUOTA' && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-1">Harga Modal</label>
@@ -254,8 +255,8 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {['Order Kuota', 'Transfer Bank', 'DANA', 'FLIP', 'Tarik Tunai'].map(kat => {
-                    const filtered = props.presets.filter(p => (p.kategori || 'Order Kuota') === kat);
+                  {[...getCategories(), 'Tarik Tunai'].map(kat => {
+                    const filtered = props.presets.filter(p => (p.kategori || 'ORDERKUOTA') === kat);
                     if (filtered.length === 0) return null;
 
                     const isCollapsed = !!collapsedCategories[kat];
@@ -289,13 +290,13 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
                         {!isCollapsed && (
                           <div className={cn(
                             "pt-4 border-t border-slate-100 dark:border-slate-700/50 mt-4",
-                            kat === 'Order Kuota' ? "flex flex-col gap-2.5" : "grid grid-cols-1 xl:grid-cols-2 gap-3"
+                            kat === 'ORDERKUOTA' ? "flex flex-col gap-2.5" : "grid grid-cols-1 xl:grid-cols-2 gap-3"
                           )}>
                             {filtered.map(p => (
                               <div key={p.id} className="bg-slate-50 dark:bg-slate-900 px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 shadow-sm">
                                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                                   <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{p.keterangan}</h4>
-                                  {kat === 'Order Kuota' && (
+                                  {kat === 'ORDERKUOTA' && (
                                     <div className="flex items-center gap-2 text-[9px] font-black tracking-widest uppercase mt-1">
                                       <span className="text-blue-600 dark:text-blue-400">Modal: {p.modal.toLocaleString('id-ID')}</span>
                                       <span className="text-slate-300 dark:text-slate-600">|</span>
@@ -386,7 +387,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
           <div className="mb-2">
             <label className="block text-[9px] font-black text-gray-900 mb-1.5 uppercase tracking-widest ml-1">Kategori Transaksi</label>
             <div className="flex flex-wrap gap-1">
-              {['Transfer Bank', 'DANA', 'FLIP', 'Order Kuota', 'Tarik Tunai'].map((kat) => (
+              {[...getCategories(), 'Tarik Tunai'].map((kat) => (
                 <button
                   key={kat}
                   onClick={() => setFormKategori(kat)}
@@ -405,7 +406,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
             <label className="block text-[9px] font-black text-gray-900 mb-0.5 uppercase tracking-widest ml-1">Keterangan / Nama Produk</label>
             <input
               type="text"
-              placeholder={formKategori === 'Order Kuota' ? "Contoh: Token Listrik" : "Contoh: gopay"}
+              placeholder={formKategori === 'ORDERKUOTA' ? "Contoh: Token Listrik" : "Contoh: gopay"}
               value={formKeterangan}
               onChange={(e) => setFormKeterangan(e.target.value)}
               className="form-input-modern w-full text-[13px] font-black px-3 h-10"
@@ -413,7 +414,7 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
             <p className="text-[8px] font-bold text-gray-400 mt-1 ml-1 leading-tight">Saat Kasir mengetik ini di "Keterangan Opsional", pilihan otomatis akan muncul.</p>
           </div>
 
-          {formKategori === 'Order Kuota' && (
+          {formKategori === 'ORDERKUOTA' && (
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-[9px] font-black text-gray-900 mb-0.5 uppercase tracking-tighter ml-1">HARGA MODAL</label>
@@ -470,8 +471,8 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
             </div>
           ) : (
             <div className="space-y-3">
-              {['Order Kuota', 'Transfer Bank', 'DANA', 'FLIP', 'Tarik Tunai'].map(kat => {
-                const filtered = props.presets.filter(p => (p.kategori || 'Order Kuota') === kat);
+              {[...getCategories(), 'Tarik Tunai'].map(kat => {
+                const filtered = props.presets.filter(p => (p.kategori || 'ORDERKUOTA') === kat);
                 if (filtered.length === 0) return null;
 
                 const isCollapsed = !!collapsedCategories[kat];
@@ -505,13 +506,13 @@ const OtomatisView: React.FC<OtomatisViewProps> = (props) => {
                     {!isCollapsed && (
                       <div className={cn(
                         "pt-2.5 border-t border-gray-100/60 animate-in fade-in duration-200",
-                        kat === 'Order Kuota' ? "flex flex-col gap-1.5" : "grid grid-cols-2 gap-1.5"
+                        kat === 'ORDERKUOTA' ? "flex flex-col gap-1.5" : "grid grid-cols-2 gap-1.5"
                       )}>
                         {filtered.map(p => (
                           <div key={p.id} className="bg-gray-50/50 p-2.5 rounded-xl border border-gray-200 flex items-center justify-between gap-1 shadow-sm">
                             <div className="flex-1 min-w-0 flex flex-col justify-center">
                               <h4 className="text-[10px] font-bold text-gray-800 truncate leading-tight">{p.keterangan}</h4>
-                              {kat === 'Order Kuota' && (
+                              {kat === 'ORDERKUOTA' && (
                                 <div className="flex items-center gap-1.5 text-[8px] font-bold tracking-widest uppercase mt-0.5">
                                   <span className="text-blue-600">M:{p.modal / 1000}k</span>
                                   <span className="text-gray-300">|</span>

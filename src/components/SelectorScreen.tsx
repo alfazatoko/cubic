@@ -68,6 +68,10 @@ export const SelectorScreen: React.FC<SelectorScreenProps> = ({
       setError('Nama toko tidak boleh kosong')
       return
     }
+    if (stores.length >= 6) {
+      setError('Batas lisensi tercapai! Anda tidak dapat membuat lebih dari 6 toko per lisensi.')
+      return
+    }
 
     try {
       setIsSubmitting(true)
@@ -184,10 +188,10 @@ export const SelectorScreen: React.FC<SelectorScreenProps> = ({
         {/* Top Header */}
         <div className="flex justify-between items-center mb-8 pb-6 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <img src="/logo_icon.png" alt="ALPHA Logo" className="w-10 h-10 object-contain drop-shadow-xl" />
+            <img src="/logo_icon.png" alt="CUBIC Logo" className="w-10 h-10 object-contain drop-shadow-xl" />
             <div>
               <h1 className="text-xl font-black text-gray-900 leading-none tracking-tight">
-                ALPHA <span className="text-blue-600">Cloud</span>
+                CUBIC <span className="text-blue-600">Cloud</span>
               </h1>
               <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mt-1">Multi-Store Switcher</p>
             </div>
@@ -243,13 +247,19 @@ export const SelectorScreen: React.FC<SelectorScreenProps> = ({
                 <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
                   Pilih Toko ({stores.length})
                 </h3>
-                {!isAddingStore && (
-                  <button 
-                    onClick={() => setIsAddingStore(true)}
-                    className="text-[9px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest transition-colors flex items-center gap-1.5"
-                  >
-                    <i className="fa-solid fa-plus-circle"></i> Tambah Toko
-                  </button>
+                {stores.length >= 6 ? (
+                  <span className="text-[8px] bg-rose-500/15 text-rose-700 border border-rose-500/30 px-2.5 py-1 rounded-full font-black uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                    <i className="fa-solid fa-lock text-[8px]"></i> Limit 6 Toko Tercapai
+                  </span>
+                ) : (
+                  !isAddingStore && (
+                    <button 
+                      onClick={() => setIsAddingStore(true)}
+                      className="text-[9px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest transition-colors flex items-center gap-1.5"
+                    >
+                      <i className="fa-solid fa-plus-circle"></i> Tambah Toko
+                    </button>
+                  )
                 )}
               </div>
 
@@ -381,7 +391,7 @@ export const SelectorScreen: React.FC<SelectorScreenProps> = ({
 
         {/* Footer */}
         <p className="text-center text-[8px] text-gray-400 font-black uppercase tracking-[0.2em] mt-6">
-          ALPHA Pro • Cloud Sync Multi-Tenant
+          KASIR CUBIC • Cloud Sync Multi-Tenant
         </p>
       </div>
 

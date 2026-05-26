@@ -104,9 +104,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, storeName, kasirList
       <div className={`login-card ${isShaking ? 'shake' : ''}`}>
         {/* Logo / Title */}
         <div className="login-header">
-          <img src="/logo_icon.png" alt="ALPHA Logo" className="w-20 h-20 object-contain mx-auto mb-4 drop-shadow-xl" />
+          <img src="/logo_icon.png" alt="CUBIC Logo" className="w-20 h-20 object-contain mx-auto mb-4 drop-shadow-xl" />
           <h1 className="login-title">
-            {storeName ? storeName.toUpperCase() : 'ALPHA'} <span className="login-title-accent">{storeName ? '' : 'Pro'}</span>
+            {storeName ? storeName.toUpperCase() : 'CUBIC'} <span className="login-title-accent">{storeName ? '' : 'Cloud'}</span>
           </h1>
           <p className="login-subtitle">{storeName ? 'Login Kasir' : 'Pembukuan Agen brilink & Konter'}</p>
 
@@ -174,7 +174,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, storeName, kasirList
         </form>
 
         {/* Footer */}
-        <p className="login-footer">ALPHA Pro v1.0</p>
+        <p className="login-footer">KASIR CUBIC v1.0</p>
       </div>
     </div>
   )
