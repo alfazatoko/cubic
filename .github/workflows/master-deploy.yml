@@ -32,7 +32,7 @@ jobs:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_CUBIC }}'
           channelId: live
-          projectId: kasircubic
+          projectId: kasir-cubic
         continue-on-error: true
 
   # JOB 2: Build APK Android (RELEASE)
