@@ -127,9 +127,25 @@ const LicenseScreen: React.FC<LicenseScreenProps> = ({ onValid }) => {
           </button>
         </form>
 
-        <p className="mt-8 text-[9px] text-slate-500 font-bold uppercase tracking-widest">
-          Hubungi Developer Jika Anda Belum Memiliki Lisensi
-        </p>
+        <div className="mt-8 border-t border-slate-700/50 pt-6">
+          <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-3">
+            Belum punya lisensi? Hubungi admin
+          </p>
+          <a
+            href={`https://wa.me/${(() => {
+              try {
+                const cfg = JSON.parse(localStorage.getItem('cubic_admin_config') || '{}');
+                return cfg.waNumber || '6287824889706';
+              } catch { return '6287824889706'; }
+            })()}?text=Halo%20Admin%2C%20saya%20ingin%20mendapatkan%20lisensi%20CUBIC.`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-900/30"
+          >
+            <i className="fa-brands fa-whatsapp text-lg"></i>
+            Hubungi Admin via WhatsApp
+          </a>
+        </div>
       </div>
     </div>
   );
