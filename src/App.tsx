@@ -287,6 +287,18 @@ const App: React.FC = () => {
     return <div className="h-screen w-screen flex items-center justify-center bg-gray-50"><i className="fa-solid fa-circle-notch fa-spin text-blue-600 text-3xl"></i></div>
   }
 
+  // ── Admin Developer Panel bypass (web only, no Google auth needed) ──
+  const currentHash = window.location.hash.replace('#/', '');
+  if (currentHash === 'admin' && Capacitor.getPlatform() === 'web') {
+    return (
+      <AdminView
+        active={true}
+        isPc={true}
+        setActiveView={(v) => { window.location.hash = `#/${v}`; }}
+      />
+    );
+  }
+
   // ── Show Google Login if not authenticated ──
   if (!googleSession) {
     return <GoogleAuthScreen />
