@@ -1,44 +1,39 @@
 {
   "project_info": {
-    "project_number": "256990495801",
-    "project_id": "alfalia",
-    "storage_bucket": "alfalia.firebasestorage.app"
+    "project_number": "655804105233",
+    "project_id": "kasir-cubic",
+    "storage_bucket": "kasir-cubic.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:256990495801:android:d04f3be5bdf6ee00f639e8",
+        "mobilesdk_app_id": "1:655804105233:android:1d91b684c70cec004e27b0",
         "android_client_info": {
-          "package_name": "com.alfazacell.alpha"
+          "package_name": "com.aplikasicubic.cubic"
         }
       },
       "oauth_client": [
         {
-          "client_id": "256990495801-52u02imi589vcdrpiu9kvncfiuvt095q.apps.googleusercontent.com",
+          "client_id": "655804105233-rpl2m049h1j06dpealldsqh7a4mscptk.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.alfazacell.alpha",
+            "package_name": "com.aplikasicubic.cubic",
             "certificate_hash": "93f435acf57f5fe4bcedeb1f1354000e928a276f"
           }
         },
         {
-          "client_id": "256990495801-l3lohe96pfple3136lgiomejm4eh1r0a.apps.googleusercontent.com",
+          "client_id": "655804105233-6h2o3smdh88m9m3r72tq4e11oam132n8.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBkYYd3AjoV8EdYnmXj4j_DIpYWjLeUHAA"
+          "current_key": "AIzaSyA_LnF6IiE4DvfdFnF0ZjiSfq0zWwhoR34"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "256990495801-l3lohe96pfple3136lgiomejm4eh1r0a.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }

@@ -1,4 +1,4 @@
-package com.alfazacell.alpha;
+package com.aplikasicubic.cubic;
 
 import com.getcapacitor.BridgeActivity;
 
