@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';// Icons using FontAwesome (since CUBIC uses FontAwesome mostly based on App.tsx)
-// But we will use standard classes for icons like fa-solid fa-shield-halved, etc.
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 interface AdminViewProps {
   active: boolean;
@@ -37,12 +37,32 @@ export default function AdminView({ active }: AdminViewProps) {
     setLoadingFeedbacks(true);
 
     try {
-      // Mocking data for now if tables don't exist, using localStorage as fallback
-      // In a real scenario, you'd fetch from Supabase
-      
-      const localLicenses = localStorage.getItem('cubic_admin_licenses');
-      if (localLicenses) setLicenses(JSON.parse(localLicenses));
+      // Load licenses from Supabase
+      const { data: licenseData, error: licErr } = await supabase
+        .from('cubic_licenses')
+        .select('*')
+        .order('created_at', { ascending: false });
 
+      if (licErr) {
+        console.error('Error loading licenses:', licErr);
+        // Fallback ke localStorage jika tabel belum ada
+        const local = localStorage.getItem('cubic_admin_licenses');
+        if (local) setLicenses(JSON.parse(local));
+      } else {
+        // Map snake_case ke camelCase
+        const mapped = (licenseData || []).map((l: any) => ({
+          id: l.id,
+          type: l.type,
+          registeredEmail: l.registered_email,
+          createdAt: l.created_at,
+          expiresAt: l.expires_at,
+          activeDevices: l.active_devices || [],
+          maxDevices: l.max_devices || 7
+        }));
+        setLicenses(mapped);
+      }
+
+      // Feedbacks masih dari localStorage
       const localFeedbacks = localStorage.getItem('cubic_admin_feedbacks');
       if (localFeedbacks) setFeedbacks(JSON.parse(localFeedbacks));
 
@@ -88,34 +108,49 @@ export default function AdminView({ active }: AdminViewProps) {
     setGenerating(true);
     
     try {
-      const newLicense = {
-        id: `LIC-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-        type: selectedType,
-        registeredEmail: genEmail,
-        createdAt: new Date().toISOString(),
-        expiresAt: selectedType === "demo" ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : selectedType === "4_months" ? new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString() : null,
-        activeDevices: [],
-        maxDevices: 7
-      };
+      const licId = `LIC-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+      const expiresAt = selectedType === "demo"
+        ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        : selectedType === "4_months"
+        ? new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString()
+        : null;
 
-      const updated = [newLicense, ...licenses];
-      setLicenses(updated);
-      localStorage.setItem('cubic_admin_licenses', JSON.stringify(updated));
-      
+      const { error: insertErr } = await supabase
+        .from('cubic_licenses')
+        .insert({
+          id: licId,
+          type: selectedType,
+          registered_email: genEmail,
+          expires_at: expiresAt,
+          active_devices: [],
+          max_devices: 7
+        });
+
+      if (insertErr) throw insertErr;
+
+      await loadData(); // Reload dari Supabase
       setGenEmail("");
-      alert("Lisensi berhasil dibuat!");
-    } catch (err) {
+      alert("✅ Lisensi berhasil dibuat dan disimpan ke database!");
+    } catch (err: any) {
+      alert("Gagal membuat lisensi: " + (err.message || err));
       console.error(err);
     } finally {
       setGenerating(false);
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm("Hapus lisensi ini?")) return;
-    const updated = licenses.filter(l => l.id !== id);
-    setLicenses(updated);
-    localStorage.setItem('cubic_admin_licenses', JSON.stringify(updated));
+    const { error: delErr } = await supabase
+      .from('cubic_licenses')
+      .delete()
+      .eq('id', id);
+    
+    if (delErr) {
+      alert("Gagal menghapus: " + delErr.message);
+      return;
+    }
+    setLicenses(prev => prev.filter(l => l.id !== id));
   };
 
   const handleDeleteFeedback = (id: string) => {

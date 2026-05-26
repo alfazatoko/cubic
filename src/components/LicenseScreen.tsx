@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 interface LicenseScreenProps {
   onValid: () => void;
@@ -9,7 +10,7 @@ const LicenseScreen: React.FC<LicenseScreenProps> = ({ onValid }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -20,57 +21,67 @@ const LicenseScreen: React.FC<LicenseScreenProps> = ({ onValid }) => {
 
     setLoading(true);
 
-    setTimeout(() => {
-      try {
-        const storedLicenses = JSON.parse(localStorage.getItem('cubic_admin_licenses') || '[]');
-        const licenseIndex = storedLicenses.findIndex((l: any) => l.id === code.trim());
+    try {
+      // Cari lisensi di Supabase
+      const { data: licenseData, error: fetchErr } = await supabase
+        .from('cubic_licenses')
+        .select('*')
+        .eq('id', code.trim())
+        .single();
 
-        if (licenseIndex === -1) {
-          setError('Kode lisensi tidak valid atau tidak ditemukan');
+      if (fetchErr || !licenseData) {
+        setError('Kode lisensi tidak valid atau tidak ditemukan');
+        setLoading(false);
+        return;
+      }
+
+      // Cek apakah lisensi sudah expired
+      if (licenseData.expires_at && new Date(licenseData.expires_at) < new Date()) {
+        setError('Lisensi ini sudah kadaluarsa');
+        setLoading(false);
+        return;
+      }
+
+      // Daftarkan device
+      let deviceId = localStorage.getItem('cubic_device_id');
+      if (!deviceId) {
+        deviceId = `DEV-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        localStorage.setItem('cubic_device_id', deviceId);
+      }
+
+      const activeDevices: string[] = licenseData.active_devices || [];
+      const isRegistered = activeDevices.includes(deviceId);
+
+      if (!isRegistered) {
+        const maxDevices = licenseData.max_devices || 7;
+        if (activeDevices.length >= maxDevices) {
+          setError(`Lisensi ini sudah mencapai batas maksimal (${maxDevices} perangkat).`);
           setLoading(false);
           return;
         }
 
-        const license = storedLicenses[licenseIndex];
-
-        let deviceId = localStorage.getItem('cubic_device_id');
-        if (!deviceId) {
-          deviceId = `DEV-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-          localStorage.setItem('cubic_device_id', deviceId);
-        }
-
-        const activeDevices = license.activeDevices || [];
-        const isDeviceAlreadyRegistered = activeDevices.includes(deviceId);
-
-        if (!isDeviceAlreadyRegistered) {
-          const maxDevices = license.maxDevices || 7;
-          if (activeDevices.length >= maxDevices) {
-            setError(`Lisensi ini sudah mencapai batas maksimal (${maxDevices} perangkat).`);
-            setLoading(false);
-            return;
-          }
-          
-          // Daftarkan device baru ke lisensi
-          activeDevices.push(deviceId);
-          storedLicenses[licenseIndex].activeDevices = activeDevices;
-          localStorage.setItem('cubic_admin_licenses', JSON.stringify(storedLicenses));
-        }
-
-        // Simpan lisensi aktif ke perangkat ini
-        localStorage.setItem('cubic_license_active', JSON.stringify({
-          id: license.id,
-          type: license.type,
-          activatedAt: new Date().toISOString(),
-          expiresAt: license.expiresAt
-        }));
-
-        alert(`Aktivasi berhasil! Lisensi ${license.type.toUpperCase()} diaktifkan.`);
-        onValid();
-      } catch (err) {
-        setError('Terjadi kesalahan sistem saat memvalidasi lisensi');
+        // Update active_devices di Supabase
+        const updatedDevices = [...activeDevices, deviceId];
+        await supabase
+          .from('cubic_licenses')
+          .update({ active_devices: updatedDevices })
+          .eq('id', licenseData.id);
       }
-      setLoading(false);
-    }, 800);
+
+      // Simpan lisensi aktif ke device ini
+      localStorage.setItem('cubic_license_active', JSON.stringify({
+        id: licenseData.id,
+        type: licenseData.type,
+        activatedAt: new Date().toISOString(),
+        expiresAt: licenseData.expires_at
+      }));
+
+      alert(`✅ Aktivasi berhasil! Lisensi ${licenseData.type.toUpperCase()} diaktifkan.`);
+      onValid();
+    } catch (err) {
+      setError('Terjadi kesalahan sistem saat memvalidasi lisensi');
+    }
+    setLoading(false);
   };
 
   return (
