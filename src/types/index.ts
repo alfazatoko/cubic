@@ -10,11 +10,22 @@ export type TransactionCategory =
   | 'Isi Modal Tunai Kasir'
   | 'Isi Total Penjualan';
 
+export interface WalletNode {
+  id: string;
+  name: string;
+  isHidden: boolean;
+  isLocked: boolean;
+  format?: 'nominal_admin' | 'modal_jual';
+}
+
 export interface Transaction {
   id: string;
   kategori: TransactionCategory | string;
+  sumber_dana?: string;
+  tujuan_dana?: string;
   nominal: number;
   adminFee: number;
+  admin_fee?: number;
   keterangan: string;
   timestamp: string;
   isEdited?: boolean;
@@ -22,7 +33,7 @@ export interface Transaction {
   originalAdminFee?: number;
   originalKategori?: string;
   kasir_id?: string;
-  store_id?: string; // Menyimpan ID toko transaksi ini
+  store_id?: string;
 }
 
 export interface AppState {

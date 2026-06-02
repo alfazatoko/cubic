@@ -57,7 +57,7 @@ const NotaView: React.FC<{ active: boolean; setActiveView: (v: string) => void; 
     window.print();
   };
 
-  const ThermalReceipt = () => (
+  const renderThermalReceipt = () => (
     <div className="bg-white text-black mx-auto p-3 flex flex-col font-mono" style={{ width: ukuranKertas, minHeight: '150px' }}>
       <div className="text-center mb-3">
         <h2 className="text-[14px] font-bold leading-tight">{shopName}</h2>
@@ -222,7 +222,7 @@ const NotaView: React.FC<{ active: boolean; setActiveView: (v: string) => void; 
                <div className="text-center text-slate-400 italic text-sm mt-20">Belum ada item ditambahkan ke nota</div>
             ) : (
               <div className="shadow-2xl">
-                 <ThermalReceipt />
+                 {renderThermalReceipt()}
               </div>
             )}
             
@@ -243,7 +243,7 @@ const NotaView: React.FC<{ active: boolean; setActiveView: (v: string) => void; 
 
         {/* PRINT ONLY SECTION */}
         <div className="hidden print:block w-full thermal-print-area">
-           <ThermalReceipt />
+           {renderThermalReceipt()}
         </div>
 
         <style>{`
@@ -290,12 +290,12 @@ const NotaView: React.FC<{ active: boolean; setActiveView: (v: string) => void; 
 
         <div className="pt-8 px-4 flex justify-center no-print">
            <div className="shadow-2xl">
-              <ThermalReceipt />
+              {renderThermalReceipt()}
            </div>
         </div>
 
         <div className="hidden print:block w-full thermal-print-area">
-           <ThermalReceipt />
+           {renderThermalReceipt()}
         </div>
 
         <style>{`
@@ -319,7 +319,7 @@ const NotaView: React.FC<{ active: boolean; setActiveView: (v: string) => void; 
   }
 
   return (
-    <div className="page-view active bg-gray-50 hide-scrollbar pb-24">
+    <div className={cn("page-view bg-gray-50 hide-scrollbar pb-24", !active && "hidden")}>
       <div className="px-4 pt-7 pb-4 border-b flex justify-between items-center bg-slate-900 text-white shadow-lg">
         <button 
           onClick={() => setActiveView('view-beranda')}

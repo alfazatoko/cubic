@@ -1,7 +1,9 @@
-import { getCategories } from '../lib/utils';
+import { getCategories, isDigitalPenjualan, getWalletName } from '../lib/utils';
 import React, { useState, useEffect, useMemo } from 'react'
-import { formatRupiah, formatInputRupiah, cn } from '../lib/utils'
+import { formatRupiah, formatInputRupiah, cn, calculateDailyStats } from '../lib/utils'
 import type { Transaction } from '../types'
+
+import { CubicLogo } from '../components/CubicLogo'
 
 interface LaporanViewProps {
   active: boolean
@@ -148,6 +150,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
   const [inputSaldoReal, setInputSaldoReal] = useState('')
   const [showSaldoRealModal, setShowSaldoRealModal] = useState(false)
   const [inputSaldoRealKeterangan, setInputSaldoRealKeterangan] = useState('')
+  const [showRiwayatPenyesuaian, setShowRiwayatPenyesuaian] = useState(false)
 
   
   useEffect(() => {
@@ -162,29 +165,22 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
   const [isSharing, setIsSharing] = React.useState(false);
 
   // Hitung ulang total berdasarkan transaksi yang difilter agar laporan akurat sesuai tanggal terpilih
-  const sum = (txs: Transaction[]) => txs.reduce((s, t) => s + t.nominal, 0)
-  const sumAdmin = (txs: Transaction[]) => txs.reduce((s, t) => s + t.adminFee, 0)
-  
-  const currentIsiBank = sum(props.transactions.filter(t => t.kategori === 'Isi Saldo Bank'))
-  const currentPenjualanDigital = sum(props.transactions.filter(t => getCategories().includes(t.kategori) && !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]')))
-  const currentSaldoBank = currentIsiBank - sum(props.transactions.filter(t => getCategories().includes(t.kategori)))
-  
-  const currentTotalAksesoris = sum(props.transactions.filter(t => t.kategori === 'Aksesoris' && !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]')))
-  const currentTotalTarik = sum(props.transactions.filter(t => t.kategori === 'Tarik Tunai' && !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]')))
-  
-  // Kas Lain Nya Calculations
-  const txsAdminDalam = props.transactions.filter(t => (t.keterangan || '').includes('[ADMIN_DALAM]'))
-  const totalAdminDalam = sumAdmin(txsAdminDalam)
+  const dailyStats = calculateDailyStats(props.transactions);
 
-  const txsNonTunai = props.transactions.filter(t => (t.keterangan || '').includes('[NON_TUNAI]'))
-  const totalNonTunai = txsNonTunai.reduce((s, t) => s + t.nominal + t.adminFee, 0)
+  const currentIsiBank = dailyStats.isiBank;
+  const currentPenjualanDigital = dailyStats.penjualanDigital;
+  const currentSaldoBank = dailyStats.saldoBank;
+  
+  const currentTotalAksesoris = dailyStats.penjualanAksesoris;
+  const currentTotalTarik = dailyStats.tarikTunai;
+  
+  const totalNonTunai = dailyStats.totalNonTunai; // this is the admin fee
+  const totalKhusus = dailyStats.totalKhusus;
+  const totalAksesorisNonTunai = dailyStats.aksesorisNonTunai || 0;
 
-  const txsKhusus = props.transactions.filter(t => (t.keterangan || '').includes('[KHUSUS]'))
-  const totalKhusus = txsKhusus.reduce((s, t) => s + t.nominal + t.adminFee, 0)
-
-  // Admin fee (exclude Admin Dalam and transactions from LAIN tab)
-  const currentTotalAdmin = sumAdmin(props.transactions.filter(t => !(t.keterangan || '').includes('[ADMIN_DALAM]') && !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]')))
-  const currentTotalSaldoKas = props.kasModal + currentPenjualanDigital + currentTotalAksesoris + currentTotalAdmin - currentTotalTarik
+  const currentTotalAdmin = dailyStats.totalAdminCash;
+  const currentTotalSaldoKas = dailyStats.saldoLaciKasir;
+  const currentTotalBankOut = dailyStats.bankOut;
 
   const [syncTrigger, setSyncTrigger] = useState(0)
   useEffect(() => {
@@ -208,16 +204,20 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
     let qris = 0
     
     Object.values(dataVoucher).forEach((items: any) => {
-      items.forEach((item: any) => {
-        const laku = Math.max(0, item.awal - item.akhir)
-        qty += laku
-        uang += laku * item.price
-      });
+      if (Array.isArray(items)) {
+        items.forEach((item: any) => {
+          const laku = Math.max(0, (item.awal || 0) - (item.akhir || 0))
+          qty += laku
+          uang += laku * (item.price || 0)
+        });
+      }
     });
     
-    dataQris.forEach((item: any) => {
-      qris += item.harga * item.qty
-    });
+    if (Array.isArray(dataQris)) {
+      dataQris.forEach((item: any) => {
+        qris += (item.harga || 0) * (item.qty || 0)
+      });
+    }
     
     return { 
       totalQtyLaku: qty, 
@@ -287,7 +287,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         y += 42;
         
         // 2. Summary Boxes (Bank & Laci)
-        // Box 1: Saldo Bank
+        // Box 1: Aset Digital
         pdf.setFillColor(235, 245, 255);
         pdf.rect(10, y, 92, 20, 'F');
         pdf.setDrawColor(200, 225, 255);
@@ -296,7 +296,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(8.5);
         pdf.setTextColor(30, 80, 150);
-        pdf.text('SALDO BANK', 15, y + 6);
+        pdf.text('ASET DIGITAL', 15, y + 6);
         pdf.setFontSize(12.5);
         pdf.setTextColor(5, 28, 95);
         pdf.text(formatRupiah(currentSaldoBank), 15, y + 14);
@@ -358,10 +358,10 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         
         y += 7;
         
-        const categories = [...getCategories(), 'Tarik Tunai', 'Aksesoris', 'Transaksi Khusus'];
+        const reportCategories = Array.from(new Set([...getCategories(), 'Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB', 'Tarik Tunai', 'Aksesoris', 'Transaksi Khusus']));
         let rowCount = 0;
-        categories.forEach(cat => {
-          let filtered = [];
+        reportCategories.forEach(cat => {
+          let filtered: Transaction[] = [];
           if (cat === 'Transaksi Khusus') {
             filtered = props.transactions.filter(t => (t.keterangan || '').includes('[KHUSUS]'));
           } else {
@@ -384,7 +384,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(8);
             pdf.setTextColor(40, 40, 40);
-            pdf.text(cat, 13, y + 4.2);
+            pdf.text(getWalletName(cat), 13, y + 4.2);
             
             pdf.setFont('helvetica', 'bold');
             pdf.text(String(qty), 90, y + 4.2, { align: 'center' });
@@ -413,7 +413,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(9.5);
         pdf.setTextColor(16, 185, 129);
-        pdf.text('KAS MASUK', col1X, col1Y);
+        pdf.text('KAS MASUK (UANG MASUK)', col1X, col1Y);
         col1Y += 3.5;
         
         const drawPDFDetailRow = (cx: number, cy: number, label: string, value: number, isMinus = false) => {
@@ -442,7 +442,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(9.5);
         pdf.setTextColor(225, 29, 72);
-        pdf.text('KAS KELUAR', col1X, col1Y);
+        pdf.text('KAS KELUAR (UANG KELUAR)', col1X, col1Y);
         col1Y += 3.5;
         col1Y = drawPDFDetailRow(col1X, col1Y, 'Tarik Tunai Nasabah', currentTotalTarik, true);
         
@@ -464,11 +464,11 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(9.5);
         pdf.setTextColor(124, 58, 237);
-        pdf.text('KAS LAINNYA', col2X, col2Y);
+        pdf.text('KAS LAIN NYA (NON TUNAI)', col2X, col2Y);
         col2Y += 3.5;
         
-        col2Y = drawPDFDetailRow(col2X, col2Y, 'Admin Dalam/Non Tunai', totalAdminDalam);
-        col2Y = drawPDFDetailRow(col2X, col2Y, 'Transaksi Non Tunai', totalNonTunai);
+        col2Y = drawPDFDetailRow(col2X, col2Y, 'Admin (Non Tunai/QRIS)', totalNonTunai);
+        col2Y = drawPDFDetailRow(col2X, col2Y, 'Aksesoris (Non Tunai)', totalAksesorisNonTunai);
         col2Y = drawPDFDetailRow(col2X, col2Y, 'Transaksi Khusus', totalKhusus);
         
         col2Y += 2;
@@ -477,10 +477,10 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(7.5);
         pdf.setTextColor(240, 230, 255);
-        pdf.text('TOTAL KAS LAINNYA', col2X + 3, col2Y + 5.8);
+        pdf.text('TOTAL KAS LAIN NYA (NON TUNAI)', col2X + 3, col2Y + 5.8);
         pdf.setFontSize(9.5);
         pdf.setTextColor(255, 255, 255);
-        pdf.text(formatRupiah(totalAdminDalam + totalNonTunai + totalKhusus), col2X + 89, col2Y + 5.8, { align: 'right' });
+        pdf.text(formatRupiah(totalNonTunai + totalKhusus + totalAksesorisNonTunai), col2X + 89, col2Y + 5.8, { align: 'right' });
         col2Y += 9;
         
         y = Math.max(col1Y, col2Y) + 6;
@@ -519,10 +519,10 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
           itemY += 9;
         };
         
-        drawPDFJurnalRow('1. Modal Saldo Bank (Isi)', 'Total pengisian/setoran saldo hari ini', currentIsiBank);
-        drawPDFJurnalRow('2. Penjualan Digital', 'Saldo Bank yang sudah terpakai', currentPenjualanDigital, true);
-        drawPDFJurnalRow('3. Sisa Saldo (Buku)', 'Uang seharusnya di bank', currentSaldoBank);
-        drawPDFJurnalRow('4. Saldo Real App (HP)', "Input menu 'Isi Saldo'", props.saldoReal);
+        drawPDFJurnalRow('1. Modal Aset Digital (Isi)', 'Total pengisian/setoran saldo hari ini', currentIsiBank);
+        drawPDFJurnalRow('2. Total Pengeluaran Digital', 'Seluruh Aset Digital yang sudah terpakai', currentTotalBankOut, true);
+        drawPDFJurnalRow('3. Sisa Aset Digital (Buku)', 'Aset seharusnya di bank', currentSaldoBank);
+        drawPDFJurnalRow('4. Aset Digital Real App (HP)', "Input menu 'Aset Digital'", props.saldoReal);
         
         // Status box under Jurnal - Centered and narrower to prevent cut-off issues
         const selisih = props.saldoReal - currentSaldoBank;
@@ -609,7 +609,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
           props.filterKasir && props.filterKasir !== 'Semua' ? `👁️ *Mode Pantau:* ${props.kasirList[props.filterKasir]?.name || props.filterKasir}` : '',
           `==================================`,
           `💵 *Saldo Laci Kasir:* *${formatRupiah(currentTotalSaldoKas)}*`,
-          `🏦 *Saldo Bank:* *${formatRupiah(currentSaldoBank)}*`,
+          `🏦 *Aset Digital:* *${formatRupiah(currentSaldoBank)}*`,
           `==================================`,
           `🎟️ *REKAP PENJUALAN VOUCHER*`,
           `• Laku: ${totalQtyLaku} pcs`,
@@ -619,9 +619,9 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
           `📊 *REKAP PER KATEGORI*`
         ].filter(Boolean);
 
-        const categories = [...getCategories(), 'Tarik Tunai', 'Aksesoris', 'Transaksi Khusus'];
-        categories.forEach(cat => {
-          let filtered = [];
+        const reportCategories = Array.from(new Set([...getCategories(), 'Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB', 'Tarik Tunai', 'Aksesoris', 'Transaksi Khusus']));
+        reportCategories.forEach(cat => {
+          let filtered: Transaction[] = [];
           if (cat === 'Transaksi Khusus') {
             filtered = props.transactions.filter(t => (t.keterangan || '').includes('[KHUSUS]'));
           } else {
@@ -634,34 +634,34 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
             const qty = filtered.length;
             const nom = filtered.reduce((s,t) => s + t.nominal, 0);
             const laba = filtered.reduce((s,t) => s + t.adminFee, 0);
-            lines.push(`• *${cat}* (${qty} Qty)\n  Nominal: ${formatRupiah(nom)}\n  Laba: ${formatRupiah(laba)}`);
+            lines.push(`• *${getWalletName(cat)}* (${qty} Qty)\n  Nominal: ${formatRupiah(nom)}\n  Laba: ${formatRupiah(laba)}`);
           }
         });
 
         lines.push(`==================================`);
-        lines.push(`📥 *KAS MASUK*`);
+        lines.push(`📥 *KAS MASUK (UANG MASUK)*`);
         lines.push(`• Modal Tunai Kasir: ${formatRupiah(props.kasModal)}`);
         lines.push(`• Penjualan Digital: ${formatRupiah(currentPenjualanDigital)}`);
-        lines.push(`• Penjualan Aksesoris: ${formatRupiah(currentTotalAksesoris)}`);
-        lines.push(`• Total Admin Fee: ${formatRupiah(currentTotalAdmin)}`);
+        lines.push(`• Aksesoris Tunai: ${formatRupiah(currentTotalAksesoris)}`);
+        lines.push(`• Admin Fee (Tunai): ${formatRupiah(currentTotalAdmin)}`);
         
         lines.push(`==================================`);
-        lines.push(`📤 *KAS KELUAR*`);
+        lines.push(`📤 *KAS KELUAR (UANG KELUAR)*`);
         lines.push(`• Tarik Tunai Nasabah: -${formatRupiah(currentTotalTarik)}`);
         
         lines.push(`==================================`);
-        lines.push(`💼 *KAS LAINNYA*`);
-        lines.push(`• Admin Dalam: ${formatRupiah(totalAdminDalam)}`);
-        lines.push(`• Transaksi Non Tunai: ${formatRupiah(totalNonTunai)}`);
+        lines.push(`💼 *KAS LAIN NYA (NON TUNAI)*`);
+        lines.push(`• Admin (Non Tunai/QRIS): ${formatRupiah(totalNonTunai)}`);
+        lines.push(`• Aksesoris Non Tunai: ${formatRupiah(totalAksesorisNonTunai)}`);
         lines.push(`• Transaksi Khusus: ${formatRupiah(totalKhusus)}`);
-        lines.push(`*Total Kas Lainnya:* ${formatRupiah(totalAdminDalam + totalNonTunai + totalKhusus)}`);
+        lines.push(`*Total Kas Lainnya:* ${formatRupiah(totalNonTunai + totalKhusus + totalAksesorisNonTunai)}`);
         
         lines.push(`==================================`);
         lines.push(`⚖️ *JURNAL PENYESUAIAN SALDO*`);
-        lines.push(`• 1. Modal Saldo Bank (Isi): ${formatRupiah(currentIsiBank)}`);
-        lines.push(`• 2. Penjualan Digital: -${formatRupiah(currentPenjualanDigital)}`);
-        lines.push(`• 3. Sisa Saldo (Buku): ${formatRupiah(currentSaldoBank)}`);
-        lines.push(`• 4. Saldo Real HP: ${formatRupiah(props.saldoReal)}`);
+        lines.push(`• 1. Modal Aset Digital (Isi): ${formatRupiah(currentIsiBank)}`);
+        lines.push(`• 2. Pengeluaran Digital: -${formatRupiah(currentTotalBankOut)}`);
+        lines.push(`• 3. Sisa Aset Digital (Buku): ${formatRupiah(currentSaldoBank)}`);
+        lines.push(`• 4. Aset Real HP: ${formatRupiah(props.saldoReal)}`);
         
         const selisih = props.saldoReal - currentSaldoBank;
         let statusStr = '';
@@ -695,12 +695,16 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         }
       } else if (type === 'share-excel') {
         let csvContent = "Kategori,Jumlah Transaksi,Nominal,Laba/Admin\n";
-        const categories = [...getCategories(), 'Tarik Tunai', 'Aksesoris', 'Transaksi Khusus'];
+        const reportCategories = Array.from(new Set([...getCategories(), 'Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB', 'Tarik Tunai', 'Aksesoris', 'Aksesoris Non Tunai', 'Transaksi Khusus']));
         
-        categories.forEach(cat => {
-          let filtered = [];
+        reportCategories.forEach(cat => {
+          let filtered: Transaction[] = [];
           if (cat === 'Transaksi Khusus') {
             filtered = props.transactions.filter(t => (t.keterangan || '').includes('[KHUSUS]'));
+          } else if (cat === 'Aksesoris Non Tunai') {
+            filtered = props.transactions.filter(t => t.kategori === 'Aksesoris' && (t.keterangan || '').includes('[NON_TUNAI]') && !(t.keterangan || '').includes('[KHUSUS]'));
+          } else if (cat === 'Aksesoris') {
+            filtered = props.transactions.filter(t => t.kategori === 'Aksesoris' && !(t.keterangan || '').includes('[NON_TUNAI]') && !(t.keterangan || '').includes('[KHUSUS]'));
           } else {
             filtered = props.transactions.filter(t => t.kategori === cat && !(t.keterangan || '').includes('[KHUSUS]'));
           }
@@ -708,17 +712,17 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
             const qty = filtered.length;
             const nom = filtered.reduce((s,t) => s + t.nominal, 0);
             const laba = filtered.reduce((s,t) => s + t.adminFee, 0);
-            csvContent += `"${cat}",${qty},${nom},${laba}\n`;
+            csvContent += `"${getWalletName(cat)}",${qty},${nom},${laba}\n`;
           }
         });
         
         csvContent += `\nRingkasan Kas\n`;
         csvContent += `"Modal Tunai Kasir",${props.kasModal}\n`;
         csvContent += `"Penjualan Digital",${currentPenjualanDigital}\n`;
-        csvContent += `"Penjualan Aksesoris",${currentTotalAksesoris}\n`;
+        csvContent += `"Penjualan Aksesoris (Tunai)",${currentTotalAksesoris}\n`;
         csvContent += `"Total Admin Fee",${currentTotalAdmin}\n`;
         csvContent += `"Tarik Tunai Nasabah",-${currentTotalTarik}\n`;
-        csvContent += `"Total KAS LAINNYA",${totalAdminDalam + totalNonTunai + totalKhusus}\n`;
+        csvContent += `"Total KAS LAIN NYA (NON TUNAI)",${totalNonTunai + totalKhusus + totalAksesorisNonTunai}\n`;
         csvContent += `"TOTAL SALDO LACI KASIR",${currentTotalSaldoKas}\n`;
         csvContent += `\nRekap Penjualan Voucher\n`;
         csvContent += `"Voucher Laku (Qty)",${totalQtyLaku}\n`;
@@ -762,7 +766,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
   if (props.isPc) {
     if (!props.active) return null;
     return (
-      <div className="flex-1 flex flex-col h-full bg-slate-50 dark:bg-slate-900 p-6 overflow-y-auto hide-scrollbar">
+      <div className={cn("flex-1 flex flex-col h-full bg-slate-50 dark:bg-slate-900 p-6 overflow-y-auto hide-scrollbar", !props.active && "hidden")}>
         {/* TOP BAR & TOOLBAR */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-sm border border-slate-100 dark:border-slate-700/50 flex flex-wrap items-center justify-between gap-4 mb-6">
           <div>
@@ -832,13 +836,13 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
 
         {/* SECTION 1: STATS CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          {/* Card 1: Saldo Bank */}
+          {/* Card 1: Aset Digital */}
           <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-[2rem] shadow-sm relative overflow-hidden text-white">
-            <div className="absolute right-4 bottom-4 text-white/5 text-7xl font-bold"><i className="fa-solid fa-building-columns"></i></div>
+            <div className="absolute right-4 bottom-4 text-white/5 text-7xl font-bold"><i className="fa-solid fa-wallet"></i></div>
             <p className="text-[10px] text-blue-100 font-bold uppercase tracking-widest flex items-center gap-2">
-              <i className="fa-solid fa-building-columns text-blue-200"></i> Saldo Bank
+              <i className="fa-solid fa-wallet text-blue-200"></i> Aset Digital
             </p>
-            <p className="text-2xl font-black mt-3 drop-shadow-sm">{formatRupiah(currentSaldoBank)}</p>
+            <p className="text-2xl font-black mt-3 drop-shadow-sm">{formatRupiah(props.saldoBank)}</p>
             <p className="text-[9px] text-blue-200 font-medium mt-1 uppercase tracking-wider">Saldo buku tersisa di bank</p>
           </div>
 
@@ -922,10 +926,17 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-slate-700/30">
-                  {[...getCategories(), 'Tarik Tunai', 'Aksesoris', 'Transaksi Khusus'].map(cat => {
-                    let filtered = [];
+                  {[...getCategories(), 'Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB', 'Tarik Tunai', 'Aksesoris', 'Aksesoris Non Tunai', 'Transaksi Khusus'].map((cat, i, arr) => {
+                    // Hanya render unik dari semua array gabungan, untuk menghindari duplikat jika legacy sudah ada di getCategories
+                    if (arr.indexOf(cat) !== i) return null;
+                    
+                    let filtered: Transaction[] = [];
                     if (cat === 'Transaksi Khusus') {
                       filtered = props.transactions.filter(t => (t.keterangan || '').includes('[KHUSUS]'));
+                    } else if (cat === 'Aksesoris Non Tunai') {
+                      filtered = props.transactions.filter(t => t.kategori === 'Aksesoris' && (t.keterangan || '').includes('[NON_TUNAI]') && !(t.keterangan || '').includes('[KHUSUS]'));
+                    } else if (cat === 'Aksesoris') {
+                      filtered = props.transactions.filter(t => t.kategori === 'Aksesoris' && !(t.keterangan || '').includes('[NON_TUNAI]') && !(t.keterangan || '').includes('[KHUSUS]'));
                     } else {
                       filtered = props.transactions.filter(t => 
                         t.kategori === cat && 
@@ -942,13 +953,14 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
                     if (cat === 'ORDERKUOTA') catColor = "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
                     if (cat === 'Tarik Tunai') catColor = "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400";
                     if (cat === 'Aksesoris') catColor = "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400";
+                    if (cat === 'Aksesoris Non Tunai') catColor = "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400";
                     if (cat === 'Transaksi Khusus') catColor = "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400";
 
                     return (
                       <tr key={cat} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-all">
                         <td className="py-2.5">
                           <span className={cn("px-2.5 py-0.5 rounded-xl text-xs font-black uppercase tracking-wider inline-block", catColor)}>
-                            {cat}
+                            {getWalletName(cat)}
                           </span>
                         </td>
                         <td className="py-2.5 font-bold text-slate-500 text-center text-xs">{filtered.length}</td>
@@ -974,8 +986,8 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
             <div className="space-y-3">
               <div className="flex justify-between items-center p-2.5 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100/50 dark:border-indigo-900/30">
                 <div>
-                  <p className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-tight">1. Modal Saldo Bank (Isi)</p>
-                  <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5">Total setoran saldo bank hari ini</p>
+                  <p className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-tight">1. Modal Aset Digital (Isi)</p>
+                  <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5">Total setoran aset digital harian</p>
                 </div>
                 <span className="font-black text-xs text-indigo-900 dark:text-white">
                   {formatRupiah(currentIsiBank)}
@@ -984,44 +996,47 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
 
               <div className="flex justify-between items-center p-2.5 bg-orange-50/30 dark:bg-orange-950/20 rounded-2xl border border-orange-100/50 dark:border-orange-900/30">
                 <div>
-                  <p className="text-xs font-bold text-orange-700 dark:text-orange-400 uppercase tracking-tight">2. Penjualan Digital</p>
-                  <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5">Saldo terpakai untuk transaksi digital</p>
+                  <p className="text-xs font-bold text-orange-700 dark:text-orange-400 uppercase tracking-tight">2. Total Pengeluaran Digital</p>
+                  <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5">Seluruh aset terpotong (termasuk kasbon/khusus)</p>
                 </div>
-                <span className="font-black text-xs text-orange-600 dark:text-orange-400">-{formatRupiah(currentPenjualanDigital)}</span>
+                <span className="font-black text-xs text-orange-600 dark:text-orange-400">-{formatRupiah(currentTotalBankOut)}</span>
               </div>
 
               <div className="flex justify-between items-center p-2.5 bg-blue-50/50 dark:bg-blue-950/30 rounded-2xl border-2 border-blue-100 dark:border-blue-900/50">
                 <div>
-                  <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-tight">3. Sisa Saldo (Buku)</p>
-                  <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5">Sisa saldo di bank teoritis</p>
+                  <p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-tight">3. Sisa Aset Digital (Buku)</p>
+                  <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5">Sisa aset digital teoritis</p>
                 </div>
                 <span className="font-black text-xs text-blue-900 dark:text-white">{formatRupiah(currentSaldoBank)}</span>
               </div>
 
-              <div className="flex flex-col gap-2 p-2.5 bg-emerald-50/30 dark:bg-emerald-950/20 rounded-2xl border border-emerald-100/50 dark:border-emerald-900/30">
-                <div className="flex justify-between items-center">
+              <div className="flex flex-col gap-2 p-3 bg-emerald-50/20 dark:bg-emerald-950/20 rounded-[2rem] border border-emerald-100/60 dark:border-emerald-900/30 shadow-inner">
+                <div className="flex justify-between items-center px-1">
                   <div>
-                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-tight">4. Saldo Real App (HP)</p>
-                    <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5">Input manual sisa saldo di HP</p>
+                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-tight">4. Aset Real App (HP)</p>
+                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium italic -mt-0.5">Catatan sisa saldo aplikasi e-wallet / mobile banking</p>
                   </div>
-                  <span className="font-black text-xs text-emerald-600 dark:text-emerald-400">{formatRupiah(props.saldoReal)}</span>
+                  <span className="font-black text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-900">{formatRupiah(props.saldoReal)}</span>
                 </div>
                 {props.onUpdateSaldoReal && (
                   <button
                     onClick={() => setShowSaldoRealModal(true)}
-                    className="w-full mt-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl py-3 px-4 flex items-center justify-between shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                    className="w-full mt-2.5 border-2 border-dashed border-emerald-200 dark:border-emerald-900/60 hover:border-emerald-400 bg-white dark:bg-slate-900/40 rounded-2xl p-3 flex items-center justify-between shadow-sm cursor-pointer transition-all active:scale-[0.98] group text-left"
+                    style={{ cursor: 'pointer' }}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                        <i className="fa-solid fa-mobile-screen-button text-sm"></i>
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/10 group-hover:scale-110 transition-transform">
+                        <i className="fa-solid fa-scale-balanced text-sm"></i>
                       </div>
-                      <div className="text-left">
-                        <p className="text-[11px] font-black uppercase tracking-widest leading-none mb-1">Catat Sisa Saldo Aplikasi Banking</p>
-                        <p className="text-[9px] font-medium opacity-90 leading-tight">Input saldo aplikasi Real Mbangking di aplikasi Hp</p>
+                      <div>
+                        <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest leading-tight mb-1">KLIK UNTUK INPUT SALDO REAL</p>
+                        <p className="text-[12px] font-extrabold text-slate-800 dark:text-slate-200 leading-none">
+                          {props.saldoReal > 0 ? "Edit Catatan: " + formatRupiah(props.saldoReal) : "Isi Nilai Saldo Real HP..."}
+                        </p>
                       </div>
                     </div>
-                    <div className="bg-yellow-400 text-yellow-900 px-4 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest shadow-sm">
-                      UPDATE
+                    <div className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 shrink-0 transition-all flex items-center gap-1.5 border border-emerald-500 group-hover:bg-emerald-700">
+                      <i className="fa-solid fa-pen-to-square"></i> ULAS / PENYESUAIAN
                     </div>
                   </button>
                 )}
@@ -1064,7 +1079,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-sm border border-slate-100 dark:border-slate-700/50 flex flex-col justify-between">
             <div>
               <h4 className="text-xs font-black text-emerald-600 dark:text-emerald-400 mb-3 tracking-widest uppercase flex items-center gap-1.5">
-                <i className="fa-solid fa-arrow-down-long"></i> KAS MASUK
+                <i className="fa-solid fa-arrow-down-long"></i> KAS MASUK (UANG MASUK)
               </h4>
               <div className="space-y-2">
                 <div className="flex justify-between items-center bg-gray-50/50 dark:bg-slate-900/50 px-3 py-2 rounded-xl border border-gray-100/50 dark:border-slate-800">
@@ -1076,11 +1091,11 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
                   <span className="font-black text-xs text-blue-600 dark:text-blue-400">{formatRupiah(currentPenjualanDigital)}</span>
                 </div>
                 <div className="flex justify-between items-center bg-fuchsia-50/50 dark:bg-fuchsia-950/20 px-3 py-2 rounded-xl border border-fuchsia-100/50 dark:border-fuchsia-900/30">
-                  <span className="text-[11px] font-bold text-fuchsia-700 dark:text-fuchsia-400 flex items-center gap-2"><i className="fa-solid fa-headphones text-[10px]"></i> Aksesoris</span>
+                  <span className="text-[11px] font-bold text-fuchsia-700 dark:text-fuchsia-400 flex items-center gap-2"><i className="fa-solid fa-headphones text-[10px]"></i> Aksesoris Tunai</span>
                   <span className="font-black text-xs text-fuchsia-600 dark:text-fuchsia-400">{formatRupiah(currentTotalAksesoris)}</span>
                 </div>
                 <div className="flex justify-between items-center bg-emerald-50/50 dark:bg-emerald-950/20 px-3 py-2 rounded-xl border border-emerald-100/50 dark:border-emerald-900/30">
-                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-2"><i className="fa-solid fa-piggy-bank text-[10px]"></i> Admin Fee</span>
+                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-2"><i className="fa-solid fa-piggy-bank text-[10px]"></i> Admin Fee (Tunai)</span>
                   <span className="font-black text-xs text-emerald-600 dark:text-emerald-400">{formatRupiah(currentTotalAdmin)}</span>
                 </div>
               </div>
@@ -1096,7 +1111,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-sm border border-slate-100 dark:border-slate-700/50 flex flex-col justify-between">
             <div>
               <h4 className="text-xs font-black text-rose-600 dark:text-rose-400 mb-3 tracking-widest uppercase flex items-center gap-1.5">
-                <i className="fa-solid fa-arrow-up-long"></i> KAS KELUAR
+                <i className="fa-solid fa-arrow-up-long"></i> KAS KELUAR (UANG KELUAR)
               </h4>
               <div className="space-y-2">
                 <div className="flex justify-between items-center bg-rose-50/50 dark:bg-rose-950/20 px-3 py-2 rounded-xl border border-rose-100/50 dark:border-rose-900/30">
@@ -1117,18 +1132,18 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
             <div>
               <div className="mb-3">
                 <h4 className="text-xs font-black text-purple-600 dark:text-purple-400 tracking-widest uppercase flex items-center gap-1.5">
-                  <i className="fa-solid fa-layer-group"></i> KAS LAINNYA
+                  <i className="fa-solid fa-layer-group"></i> KAS LAIN NYA (NON TUNAI)
                 </h4>
-                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Pemasukan luar laci</p>
+                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Masuk aliran ke DOMPET PENAMPUNG</p>
               </div>
               <div className="space-y-2">
-                <div className="flex justify-between items-center bg-purple-50/50 dark:bg-purple-950/20 px-3 py-2 rounded-xl border border-purple-100/50 dark:border-purple-900/30">
-                  <span className="text-[11px] font-bold text-purple-700 dark:text-purple-400 flex items-center gap-2"><i className="fa-solid fa-tags text-[10px]"></i> Admin Dalam</span>
-                  <span className="font-black text-xs text-purple-600 dark:text-purple-400">{formatRupiah(totalAdminDalam)}</span>
-                </div>
                 <div className="flex justify-between items-center bg-indigo-50/50 dark:bg-indigo-950/20 px-3 py-2 rounded-xl border border-indigo-100/50 dark:border-indigo-900/30">
-                  <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-2"><i className="fa-solid fa-credit-card text-[10px]"></i> Non Tunai</span>
+                  <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-2"><i className="fa-solid fa-credit-card text-[10px]"></i> Admin (Non Tunai/QRIS)</span>
                   <span className="font-black text-xs text-indigo-600 dark:text-indigo-400">{formatRupiah(totalNonTunai)}</span>
+                </div>
+                <div className="flex justify-between items-center bg-pink-50/50 dark:bg-pink-950/20 px-3 py-2 rounded-xl border border-pink-100/50 dark:border-pink-900/30">
+                  <span className="text-[11px] font-bold text-pink-700 dark:text-pink-400 flex items-center gap-2"><i className="fa-solid fa-headphones text-[10px]"></i> Aksesoris (Non Tunai)</span>
+                  <span className="font-black text-xs text-pink-600 dark:text-pink-400">{formatRupiah(totalAksesorisNonTunai)}</span>
                 </div>
                 <div className="flex justify-between items-center bg-fuchsia-50/50 dark:bg-fuchsia-950/20 px-3 py-2 rounded-xl border border-fuchsia-100/50 dark:border-fuchsia-900/30">
                   <span className="text-[11px] font-bold text-fuchsia-700 dark:text-fuchsia-400 flex items-center gap-2"><i className="fa-solid fa-star text-[10px]"></i> Khusus</span>
@@ -1139,7 +1154,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
             
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
               <span className="text-[10px] font-black text-slate-400 uppercase">Total Lainnya</span>
-              <span className="text-sm font-black text-purple-600">{formatRupiah(totalAdminDalam + totalNonTunai + totalKhusus)}</span>
+              <span className="text-sm font-black text-purple-600">{formatRupiah(totalNonTunai + totalKhusus + totalAksesorisNonTunai)}</span>
             </div>
           </div>
         </div>
@@ -1213,16 +1228,16 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
   }
 
   return (
-    <div id="laporan-content" className={cn("page-view hide-scrollbar bg-gray-50/50", props.active && "active")}>
+    <div id="laporan-content" className={cn("page-view hide-scrollbar bg-gray-50/50", !props.active && "hidden", props.isPc && "flex-1 h-full w-full overflow-y-auto")}>
       {/* HEADER TOKO IDENTIK BERANDA */}
-      <div id="laporan-header-actions" className="relative theme-header" style={{ paddingBottom: '2.5rem' }}>
+      <div id="laporan-header-actions" className="relative bg-gradient-to-br from-blue-700 to-blue-800 rounded-b-[2rem] shadow-md" style={{ paddingBottom: '2.5rem' }}>
         <div className="px-4 pt-12 pb-2 flex items-center justify-between gap-3">
           <div className="flex-1 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {props.storePhoto ? (
                 <img src={props.storePhoto} alt="Logo" className="w-12 h-12 rounded-full object-cover border-2 border-white/50 shadow-md" />
               ) : (
-                <img src="/logo_icon.png" alt="Logo" className="w-12 h-12 object-contain" />
+                <CubicLogo size={12} className="w-12 h-12" />
               )}
               <div>
                 <h1 className="text-[13px] font-black text-white leading-tight uppercase tracking-widest">{props.storeName || 'APLIKASI CUBIC'}</h1>
@@ -1321,12 +1336,12 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         </div>
       </div>
 
-      <div className="px-1.5 pb-5 space-y-2.5">
+      <div className="px-1.5 pb-32 space-y-2.5">
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-4 rounded-3xl shadow-lg shadow-blue-500/20 relative overflow-hidden">
             <div className="absolute -right-4 -top-4 w-16 h-16 bg-white/10 rounded-full blur-xl"></div>
-            <p className="text-[10px] text-blue-100 font-bold uppercase tracking-widest flex items-center gap-1.5"><i className="fa-solid fa-building-columns"></i> Saldo Bank</p>
-            <p className="text-base font-black text-white mt-2 drop-shadow-sm">{formatRupiah(currentSaldoBank)}</p>
+            <p className="text-[10px] text-blue-100 font-bold uppercase tracking-widest flex items-center gap-1.5"><i className="fa-solid fa-wallet"></i> Aset Digital</p>
+            <p className="text-base font-black text-white mt-2 drop-shadow-sm">{formatRupiah(props.saldoBank)}</p>
           </div>
           <div className="bg-gradient-to-br from-emerald-400 to-teal-500 p-4 rounded-3xl shadow-lg shadow-emerald-500/20 relative overflow-hidden">
             <div className="absolute -right-4 -top-4 w-16 h-16 bg-white/10 rounded-full blur-xl"></div>
@@ -1353,13 +1368,17 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 text-gray-700">
-                {[...getCategories(), 'Tarik Tunai', 'Aksesoris', 'Transaksi Khusus'].map(cat => {
-                  let filtered = [];
+                {Array.from(new Set([...getCategories(), 'Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB', 'Tarik Tunai', 'Aksesoris', 'Aksesoris Non Tunai', 'Transaksi Khusus'])).map((cat, i, arr) => {
+                  let filtered: Transaction[] = [];
                   if (cat === 'Transaksi Khusus') {
                     // Group ALL khusus transactions as requested
                     filtered = props.transactions.filter(t => (t.keterangan || '').includes('[KHUSUS]'));
+                  } else if (cat === 'Aksesoris Non Tunai') {
+                    filtered = props.transactions.filter(t => t.kategori === 'Aksesoris' && (t.keterangan || '').includes('[NON_TUNAI]') && !(t.keterangan || '').includes('[KHUSUS]'));
+                  } else if (cat === 'Aksesoris') {
+                    filtered = props.transactions.filter(t => t.kategori === 'Aksesoris' && !(t.keterangan || '').includes('[NON_TUNAI]') && !(t.keterangan || '').includes('[KHUSUS]'));
                   } else {
-                    // Filter by category and exclude anything already grouped in Khusus or Non Tunai
+                    // Filter by category and exclude anything already grouped in Khusus
                     filtered = props.transactions.filter(t => 
                       t.kategori === cat && 
                       !(t.keterangan || '').includes('[KHUSUS]')
@@ -1375,13 +1394,14 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
                   if (cat === 'ORDERKUOTA') catColor = "bg-emerald-100 text-emerald-700";
                   if (cat === 'Tarik Tunai') catColor = "bg-rose-100 text-rose-700";
                   if (cat === 'Aksesoris') catColor = "bg-fuchsia-100 text-fuchsia-700";
+                  if (cat === 'Aksesoris Non Tunai') catColor = "bg-pink-100 text-pink-700";
                   if (cat === 'Transaksi Khusus') catColor = "bg-purple-100 text-purple-700";
 
                   return (
                     <tr key={cat} className="group hover:bg-gray-50/80 transition-all">
                       <td className="py-1 pr-2">
                         <span className={cn("px-2 py-0.5 rounded-xl text-xs font-black whitespace-nowrap inline-block", catColor)}>
-                          {cat}
+                          {getWalletName(cat)}
                         </span>
                       </td>
                       <td className="py-1 font-bold text-gray-500 text-center text-xs">{filtered.length}</td>
@@ -1398,7 +1418,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
         <div className="p-4 space-y-5">
           <div>
             <h4 className="text-[13px] font-extrabold text-emerald-600 mb-1.5 tracking-widest uppercase flex items-center gap-1.5">
-              <i className="fa-solid fa-arrow-down-long"></i> KAS MASUK
+              <i className="fa-solid fa-arrow-down-long"></i> KAS MASUK (UANG MASUK)
             </h4>
             <div className="bg-white rounded-2xl p-2 shadow-sm border border-emerald-100 space-y-1">
               <div className="flex justify-between items-center bg-gray-50/50 px-3 py-1 rounded-xl border border-gray-100/50">
@@ -1410,11 +1430,11 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
                 <span className="font-black text-[14px] text-blue-600">{formatRupiah(currentPenjualanDigital)}</span>
               </div>
               <div className="flex justify-between items-center bg-fuchsia-50/50 px-3 py-1 rounded-xl border border-fuchsia-100/50">
-                <span className="text-[13px] font-bold text-fuchsia-700 flex items-center gap-2"><i className="fa-solid fa-headphones text-[12px]"></i> Penjualan Aksesoris</span>
+                <span className="text-[13px] font-bold text-fuchsia-700 flex items-center gap-2"><i className="fa-solid fa-headphones text-[12px]"></i> Aksesoris Tunai</span>
                 <span className="font-black text-[14px] text-fuchsia-600">{formatRupiah(currentTotalAksesoris)}</span>
               </div>
               <div className="flex justify-between items-center bg-emerald-50/50 px-3 py-1 rounded-xl border border-emerald-100/50">
-                <span className="text-[13px] font-bold text-emerald-700 flex items-center gap-2"><i className="fa-solid fa-piggy-bank text-[12px]"></i> Total Admin Fee</span>
+                <span className="text-[13px] font-bold text-emerald-700 flex items-center gap-2"><i className="fa-solid fa-piggy-bank text-[12px]"></i> Admin Fee (Tunai)</span>
                 <span className="font-black text-[14px] text-emerald-600">{formatRupiah(currentTotalAdmin)}</span>
               </div>
             </div>
@@ -1422,7 +1442,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
 
           <div>
             <h4 className="text-[13px] font-extrabold text-rose-600 mb-1.5 tracking-widest uppercase flex items-center gap-1.5">
-              <i className="fa-solid fa-arrow-up-long"></i> KAS KELUAR
+              <i className="fa-solid fa-arrow-up-long"></i> KAS KELUAR (UANG KELUAR)
             </h4>
             <div className="bg-white rounded-2xl p-2 shadow-sm border border-rose-100 space-y-1">
               <div className="flex justify-between items-center bg-rose-50/50 px-3 py-1 rounded-xl border border-rose-100/50">
@@ -1479,18 +1499,18 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
           <div>
             <div className="mb-2">
               <h4 className="text-[13px] font-extrabold text-purple-600 tracking-widest uppercase flex items-center gap-1.5">
-                <i className="fa-solid fa-layer-group"></i> KAS LAIN NYA
+                <i className="fa-solid fa-layer-group"></i> KAS LAIN NYA (NON TUNAI)
               </h4>
-              <p className="text-[10px] font-bold text-purple-400/80 italic ml-5 -mt-0.5">Pemasukan Tambahan</p>
+              <p className="text-[10px] font-bold text-purple-400/80 italic ml-5 -mt-0.5">Masuk aliran ke DOMPET PENAMPUNG</p>
             </div>
             <div className="bg-white rounded-2xl p-2 shadow-sm border border-purple-100 space-y-1">
-              <div className="flex justify-between items-center bg-purple-50/50 px-3 py-1 rounded-xl border border-purple-100/50">
-                <span className="text-[13px] font-bold text-purple-700 flex items-center gap-2"><i className="fa-solid fa-tags text-[12px]"></i> Admin Dalam/Non Tunai</span>
-                <span className="font-black text-[14px] text-purple-600">{formatRupiah(totalAdminDalam)}</span>
-              </div>
               <div className="flex justify-between items-center bg-indigo-50/50 px-3 py-1 rounded-xl border border-indigo-100/50">
-                <span className="text-[13px] font-bold text-indigo-700 flex items-center gap-2"><i className="fa-solid fa-credit-card text-[12px]"></i> Transaksi Non Tunai</span>
+                <span className="text-[13px] font-bold text-indigo-700 flex items-center gap-2"><i className="fa-solid fa-credit-card text-[12px]"></i> Admin (Non Tunai/QRIS)</span>
                 <span className="font-black text-[14px] text-indigo-600">{formatRupiah(totalNonTunai)}</span>
+              </div>
+              <div className="flex justify-between items-center bg-pink-50/50 px-3 py-1 rounded-xl border border-pink-100/50">
+                <span className="text-[13px] font-bold text-pink-700 flex items-center gap-2"><i className="fa-solid fa-headphones text-[12px]"></i> Aksesoris (Non Tunai)</span>
+                <span className="font-black text-[14px] text-pink-600">{formatRupiah(totalAksesorisNonTunai)}</span>
               </div>
               <div className="flex justify-between items-center bg-fuchsia-50/50 px-3 py-1 rounded-xl border border-fuchsia-100/50">
                 <span className="text-[13px] font-bold text-fuchsia-700 flex items-center gap-2"><i className="fa-solid fa-star text-[12px]"></i> Transaksi Khusus</span>
@@ -1498,7 +1518,7 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
               </div>
               <div className="mt-2 pt-2 border-t-2 border-purple-100/50 flex justify-between items-center px-3 py-1.5 bg-purple-100/30 rounded-xl">
                 <span className="text-[13px] font-black text-purple-800 flex items-center gap-2">TOTAL KAS LAIN NYA</span>
-                <span className="font-black text-[15px] text-purple-700">{formatRupiah(totalAdminDalam + totalNonTunai + totalKhusus)}</span>
+                <span className="font-black text-[15px] text-purple-700">{formatRupiah(totalNonTunai + totalKhusus + totalAksesorisNonTunai)}</span>
               </div>
             </div>
           </div>
@@ -1514,8 +1534,8 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
             <div className="space-y-1.5">
               <div className="flex justify-between items-center p-1.5 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
                 <div>
-                  <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-tight">1. Modal Saldo Bank (Isi)</p>
-                  <p className="text-[9px] text-indigo-400 font-medium italic -mt-0.5">Total pengisian/setoran saldo hari ini</p>
+                  <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-tight">1. Modal Aset Digital (Isi)</p>
+                  <p className="text-[9px] text-indigo-400 font-medium italic -mt-0.5">Total pengisian/setoran harian</p>
                 </div>
                 <span className="font-black text-[13px] text-indigo-900">
                   {formatRupiah(currentIsiBank)}
@@ -1524,44 +1544,47 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
 
               <div className="flex justify-between items-center p-1.5 bg-orange-50/50 rounded-xl border border-orange-100/50">
                 <div>
-                  <p className="text-[11px] font-bold text-orange-700 uppercase tracking-tight">2. Penjualan Digital</p>
-                  <p className="text-[9px] text-orange-400 font-medium italic -mt-0.5">Saldo Bank yang sudah terpakai</p>
+                  <p className="text-[11px] font-bold text-orange-700 uppercase tracking-tight">2. Total Pengeluaran Digital</p>
+                  <p className="text-[9px] text-orange-400 font-medium italic -mt-0.5">Seluruh aset terpotong (kasbon/khusus)</p>
                 </div>
-                <span className="font-black text-[13px] text-orange-900">-{formatRupiah(currentPenjualanDigital)}</span>
+                <span className="font-black text-[13px] text-orange-900">-{formatRupiah(currentTotalBankOut)}</span>
               </div>
 
               <div className="flex justify-between items-center p-1.5 bg-blue-50/80 rounded-xl border-2 border-blue-100">
                 <div>
-                  <p className="text-[11px] font-bold text-blue-700 uppercase tracking-tight">3. Sisa Saldo (Buku)</p>
-                  <p className="text-[9px] text-blue-400 font-medium italic -mt-0.5">Uang seharusnya di bank</p>
+                  <p className="text-[11px] font-bold text-blue-700 uppercase tracking-tight">3. Sisa Aset Digital (Buku)</p>
+                  <p className="text-[9px] text-blue-400 font-medium italic -mt-0.5">Aset digital seharusnya</p>
                 </div>
                 <span className="font-black text-[13px] text-blue-900">{formatRupiah(currentSaldoBank)}</span>
               </div>
 
-              <div className="flex flex-col gap-2 p-2 bg-emerald-50/50 rounded-xl border border-emerald-100/50">
-                <div className="flex justify-between items-center">
+              <div className="flex flex-col gap-2.5 p-3 bg-emerald-50/20 rounded-[1.8rem] border border-emerald-100 dark:border-slate-800">
+                <div className="flex justify-between items-center px-1">
                   <div>
-                    <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-tight">4. Saldo Real App (HP)</p>
-                    <p className="text-[9px] text-emerald-400 font-medium italic -mt-0.5 whitespace-nowrap">Input manual sisa saldo</p>
+                    <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-tight">4. Aset Real App (HP)</p>
+                    <p className="text-[9px] text-slate-400 font-medium italic -mt-0.5 whitespace-nowrap">Sisa dana di mobile banking / HP</p>
                   </div>
-                  <span className="font-black text-[13px] text-emerald-900">{formatRupiah(props.saldoReal)}</span>
+                  <span className="font-black text-[12px] text-emerald-990 bg-emerald-50 px-2 py-0.5 border border-emerald-100 rounded-full">{formatRupiah(props.saldoReal)}</span>
                 </div>
                 {props.onUpdateSaldoReal && (
                   <button
                     onClick={() => setShowSaldoRealModal(true)}
-                    className="w-full mt-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 active:bg-emerald-600 text-white rounded-xl py-2.5 px-3 flex items-center justify-between shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                    className="w-full mt-1 border-2 border-dashed border-emerald-200 hover:border-emerald-400 bg-white dark:bg-slate-900 rounded-2xl p-2.5 flex items-center justify-between shadow-sm cursor-pointer transition-all active:scale-[0.98] group text-left"
+                    style={{ cursor: 'pointer' }}
                   >
-                    <div className="flex items-center gap-2.5 flex-1 pr-2">
-                      <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                        <i className="fa-solid fa-mobile-screen-button text-sm"></i>
+                    <div className="flex items-center gap-2.5 flex-1 pr-1">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-md">
+                        <i className="fa-solid fa-scale-balanced text-xs animate-pulse"></i>
                       </div>
-                      <div className="text-left flex-1">
-                        <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest leading-tight mb-0.5">Catat Sisa Saldo Aplikasi Banking</p>
-                        <p className="text-[8px] font-medium opacity-90 leading-tight">Input saldo aplikasi Real Mbangking di aplikasi Hp</p>
+                      <div className="text-left">
+                        <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">KLIK UNTUK INPUT SALDO HP</p>
+                        <p className="text-[11px] font-extrabold text-slate-700 leading-none truncate">
+                          {props.saldoReal > 0 ? "Revisi: " + formatRupiah(props.saldoReal) : "Isi Saldo Real Sekarang..."}
+                        </p>
                       </div>
                     </div>
-                    <div className="bg-yellow-400 text-yellow-900 px-3 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-widest shadow-sm shrink-0">
-                      UPDATE
+                    <div className="bg-emerald-600 text-white px-2.5 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center gap-1 shrink-0 border border-emerald-500 shadow-sm group-hover:bg-emerald-700">
+                      <i className="fa-solid fa-pen"></i> EDIT
                     </div>
                   </button>
                 )}
@@ -1594,6 +1617,33 @@ const LaporanView: React.FC<LaporanViewProps> = (props) => {
                   </div>
                 );
               })()}
+
+              {/* Tampilkan Riwayat Input Saldo Real */}
+              <div className="mt-3 text-center">
+                <button 
+                  onClick={() => setShowRiwayatPenyesuaian(!showRiwayatPenyesuaian)}
+                  className="text-[10px] font-black text-slate-400 hover:text-emerald-600 transition-colors uppercase tracking-widest flex items-center justify-center gap-1.5 w-full py-2"
+                >
+                  {showRiwayatPenyesuaian ? <><i className="fa-solid fa-chevron-up"></i> SEMBUNYIKAN RIWAYAT PENYESUAIAN</> : <><i className="fa-solid fa-chevron-down"></i> LIHAT RIWAYAT PENYESUAIAN HARI INI</>}
+                </button>
+                {showRiwayatPenyesuaian && (
+                  <div className="mt-2 text-left space-y-2 max-h-[150px] overflow-y-auto hide-scrollbar bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    {props.transactions.filter(t => t.kategori.includes('Real Aplikasi')).length === 0 ? (
+                       <p className="text-[10px] font-bold text-center text-slate-400 italic py-2">Belum ada inputan saldo real hari ini</p>
+                    ) : (
+                      props.transactions.filter(t => t.kategori.includes('Real Aplikasi')).slice().reverse().map((t, idx) => (
+                        <div key={idx} className="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm border border-slate-100">
+                          <div>
+                            <p className="text-[10px] font-black text-slate-700 uppercase">{t.keterangan || 'Update M-Banking'}</p>
+                            <p className="text-[8px] font-bold text-slate-400">{t.timestamp.split('T')[1].substring(0,5)} • {t.kasir_id || 'Kasir'}</p>
+                          </div>
+                          <span className="text-[11px] font-black text-emerald-700">{formatRupiah(t.nominal)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

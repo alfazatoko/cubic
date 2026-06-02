@@ -1,29 +1,27 @@
 import React, { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { ChevronDown, AlertCircle } from 'lucide-react'
+import { CubicLogo } from './CubicLogo'
 
 export interface KasirAccount {
-  pin: string
-  role: 'owner' | 'kasir'
   name: string
+  role: 'owner' | 'kasir'
+  pin: string
 }
 
-export const getDefaultKasirAccounts = (): Record<string, KasirAccount> => ({
-  'owner': { pin: '0000', role: 'owner', name: 'Owner' },
-  'kasir1': { pin: '1234', role: 'kasir', name: 'Kasir 1' },
-  'kasir2': { pin: '5678', role: 'kasir', name: 'Kasir 2' },
-})
-
-export const getKasirAccounts = (): Record<string, KasirAccount> => {
-  const stored = localStorage.getItem('alphaPro_kasir_list')
-  if (stored) {
-    try { return JSON.parse(stored) } catch(e) {}
+export function getKasirAccounts(): Record<string, KasirAccount> {
+  const data = localStorage.getItem('alphaPro_kasir_list')
+  if (!data) return {}
+  try {
+    return JSON.parse(data)
+  } catch (e) {
+    return {}
   }
-  return getDefaultKasirAccounts()
 }
 
-export const saveKasirAccounts = (accounts: Record<string, KasirAccount>) => {
+export function saveKasirAccounts(accounts: Record<string, KasirAccount>) {
   localStorage.setItem('alphaPro_kasir_list', JSON.stringify(accounts))
 }
-
 
 interface LoginScreenProps {
   onLogin: (username: string, account: KasirAccount) => void
@@ -31,151 +29,153 @@ interface LoginScreenProps {
   kasirListOverride?: Record<string, KasirAccount>
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, storeName, kasirListOverride }) => {
-  const [selectedUser, setSelectedUser] = useState('')
-  const [pin, setPin] = useState('')
-  const [error, setError] = useState('')
-  const [isShaking, setIsShaking] = useState(false)
-  const [isPinEnabled, setIsPinEnabled] = useState(true)
-  const [kasirList, setKasirList] = useState<Record<string, KasirAccount>>({})
+const LoginScreen: React.FC<LoginScreenProps> = ({
+  onLogin,
+  storeName,
+  kasirListOverride = {}
+}) => {
+  const [selectedUser, setSelectedUser] = useState<string>('')
+  const [pin, setPin] = useState<string>('')
+  const [errorMsg, setErrorMsg] = useState<string>('')
+
+  // Map of cashiers to display. ONLY CASHIERS, NO OWNER.
+  const cashiers = kasirListOverride || {}
+  const cashierIds = Object.keys(cashiers).filter(id => id !== 'owner' && cashiers[id].role !== 'owner')
 
   useEffect(() => {
-    if (kasirListOverride) {
-      setKasirList(kasirListOverride)
-    } else {
-      setKasirList(getKasirAccounts())
+    // If only one cashier is available, auto-select them
+    if (cashierIds.length === 1 && !selectedUser) {
+      setSelectedUser(cashierIds[0])
     }
-  }, [kasirListOverride])
+  }, [cashierIds, selectedUser])
 
-
-
-  // Check if PIN is enabled from localStorage
-  useEffect(() => {
-    const enabled = localStorage.getItem('alphaPro_isPinEnabled')
-    if (enabled === 'false') {
-      setIsPinEnabled(false)
-    }
-  }, [])
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-
+  const handleLoginSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    
     if (!selectedUser) {
-      setError('Silakan pilih pengguna.')
-      triggerShake()
+      setErrorMsg('Pilih profil kasir terlebih dahulu!')
       return
     }
 
-    const account = kasirList[selectedUser]
+    const account = cashiers[selectedUser]
     if (!account) {
-      setError('Akun tidak valid.')
-      triggerShake()
+      setErrorMsg('Profil kasir tidak ditemukan!')
       return
     }
 
-    // Only validate PIN if enabled
-    if (isPinEnabled) {
-      if (!pin) {
-        setError('PIN harus diisi.')
-        triggerShake()
-        return
-      }
-
-      if (account.pin !== pin) {
-        setError('PIN salah. Coba lagi.')
-        setPin('')
-        triggerShake()
-        return
-      }
+    // Validate PIN (if PIN is set)
+    if (account.pin && pin !== account.pin) {
+      setErrorMsg('PIN yang Anda masukkan salah!')
+      setPin('')
+      return
     }
 
-    // Success
+    // Successfully authenticated
     onLogin(selectedUser, account)
   }
 
-  const triggerShake = () => {
-    setIsShaking(true)
-    setTimeout(() => setIsShaking(false), 500)
-  }
-
   return (
-    <div className="login-screen">
-      <div className={`login-card ${isShaking ? 'shake' : ''}`}>
-        {/* Logo / Title */}
-        <div className="login-header">
-          <img src="/logo_icon.png" alt="CUBIC Logo" className="w-20 h-20 object-contain mx-auto mb-4 drop-shadow-xl" />
-          <h1 className="login-title">
-            {storeName ? storeName.toUpperCase() : 'CUBIC'} <span className="login-title-accent">{storeName ? '' : 'Cloud'}</span>
-          </h1>
-          <p className="login-subtitle">{storeName ? 'Login Kasir' : 'Pembukuan Agen brilink & Konter'}</p>
+    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-6 font-sans">
+      <motion.div 
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-sm bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-100 flex flex-col items-center"
+      >
+        {/* App Title/Logo Header */}
+        <CubicLogo size={18} className="mb-6 scale-110" />
+        
+        <h2 className="text-2xl font-black tracking-tight text-slate-800 uppercase leading-none mb-2">
+          {storeName || 'TOKO'}
+        </h2>
+        <p className="text-sm font-bold text-slate-500 mb-8">
+          Login Kasir
+        </p>
 
-        </div>
+        <form onSubmit={handleLoginSubmit} className="w-full space-y-5">
+          {/* PROFILE SELECTOR LIST */}
+          <div className="w-full">
+            <label className="text-sm font-bold text-slate-800 block mb-2 px-1">
+              Pilih Pengguna
+            </label>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="login-form">
-          {/* User Select */}
-          <div className="login-field">
-            <label className="login-label">Pilih Pengguna</label>
-            <div className="login-select-wrapper">
+            <div className="relative">
               <select
                 value={selectedUser}
-                onChange={(e) => { setSelectedUser(e.target.value); setError('') }}
-                className="login-select"
+                onChange={(e) => {
+                  setSelectedUser(e.target.value)
+                  setErrorMsg('')
+                  setPin('')
+                }}
+                className="w-full appearance-none bg-white border border-blue-200 text-slate-800 text-sm font-bold rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
               >
-                <option value="" disabled>Pilih Pengguna</option>
-                {Object.entries(kasirList)
-                  .filter(([_id, acc]) => acc.role !== 'owner')
-                  .map(([id, acc]) => (
+                <option value="" disabled className="text-slate-400">Pilih Pengguna</option>
+                {cashierIds.map(id => (
                   <option key={id} value={id}>
-                    {acc.name} (Kasir)
+                    {cashiers[id]?.name || id}
                   </option>
                 ))}
               </select>
-              <i className="fa-solid fa-chevron-down login-select-icon"></i>
+              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <ChevronDown size={20} />
+              </div>
             </div>
+
+            {cashierIds.length === 0 && (
+              <p className="text-[10px] mt-2 font-bold text-amber-600 px-1 bg-amber-50 p-2 rounded-xl border border-amber-200">
+                Belum ada kasir terdaftar. Login owner untuk daftar kasir.
+              </p>
+            )}
           </div>
 
-          {/* PIN Input (Hidden if PIN is disabled) */}
-          {isPinEnabled && (
-            <div className="login-field">
-              <label className="login-label">PIN</label>
-              <input
-                type="password"
-                value={pin}
-                onChange={(e) => { setPin(e.target.value.replace(/[^0-9]/g, '')); setError('') }}
-                placeholder="Masukkan PIN"
-                maxLength={6}
-                className="login-input"
-                inputMode="numeric"
-              />
-            </div>
+          {/* PIN DISPLAY */}
+          <div className="w-full">
+            <label className="text-sm font-bold text-slate-800 block mb-2 px-1">
+              PIN
+            </label>
+            <input
+              type="password"
+              pattern="[0-9]*"
+              inputMode="numeric"
+              placeholder="Masukkan PIN"
+              value={pin}
+              onChange={(e) => {
+                setPin(e.target.value)
+                setErrorMsg('')
+              }}
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm font-bold rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all placeholder:font-normal placeholder:text-slate-400 shadow-sm"
+            />
+          </div>
+
+          {errorMsg && (
+            <AnimatePresence>
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="w-full overflow-hidden"
+              >
+                <div className="flex items-center gap-2 bg-red-50 text-red-600 text-xs font-bold p-3 rounded-xl border border-red-100">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              </motion.div>
+            </AnimatePresence>
           )}
 
-          {/* PIN Info if disabled */}
-          {!isPinEnabled && selectedUser && (
-            <p className="text-[10px] text-emerald-600 font-bold text-center mt-1 animate-pulse">
-              <i className="fa-solid fa-shield-check mr-1"></i> Mode Tanpa PIN Aktif
-            </p>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div className="login-error">
-              <i className="fa-solid fa-circle-exclamation"></i>
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* Submit Button */}
-          <button type="submit" className="login-btn">
-            MASUK
-          </button>
+          <div className="pt-2">
+            <button
+              type="submit"
+              className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black text-sm tracking-widest uppercase rounded-2xl shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all"
+            >
+              MASUK
+            </button>
+          </div>
         </form>
 
-        {/* Footer */}
-        <p className="login-footer">KASIR CUBIC v1.0</p>
-      </div>
+        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-10">
+          KASIR CUBIC v1.0
+        </p>
+      </motion.div>
     </div>
   )
 }

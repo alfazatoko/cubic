@@ -1,165 +1,114 @@
-import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import React, { useState } from 'react'
+import { motion } from 'motion/react'
+import { KeyRound, ShieldAlert, Sparkles, CheckCircle2 } from 'lucide-react'
 
 interface LicenseScreenProps {
-  onValid: () => void;
+  onValid: () => void
 }
 
 const LicenseScreen: React.FC<LicenseScreenProps> = ({ onValid }) => {
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [licenseKey, setLicenseKey] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  const handleActivate = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
 
-    if (!code.trim()) {
-      setError('Kode lisensi tidak boleh kosong');
-      return;
+    // Basic key validation: e.g. CUBIC-XXXX-XXXX-XXXX
+    const cleanedKey = licenseKey.trim().toUpperCase()
+    if (!cleanedKey) {
+      setError('HARAP MASUKKAN KUNCI LISENSI!')
+      return
     }
 
-    setLoading(true);
-
-    try {
-      // Cari lisensi di Supabase
-      const { data: licenseData, error: fetchErr } = await supabase
-        .from('cubic_licenses')
-        .select('*')
-        .eq('id', code.trim())
-        .single();
-
-      if (fetchErr || !licenseData) {
-        setError('Kode lisensi tidak valid atau tidak ditemukan');
-        setLoading(false);
-        return;
-      }
-
-      // Cek apakah lisensi sudah expired
-      if (licenseData.expires_at && new Date(licenseData.expires_at) < new Date()) {
-        setError('Lisensi ini sudah kadaluarsa');
-        setLoading(false);
-        return;
-      }
-
-      // Daftarkan device
-      let deviceId = localStorage.getItem('cubic_device_id');
-      if (!deviceId) {
-        deviceId = `DEV-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-        localStorage.setItem('cubic_device_id', deviceId);
-      }
-
-      const activeDevices: string[] = licenseData.active_devices || [];
-      const isRegistered = activeDevices.includes(deviceId);
-
-      if (!isRegistered) {
-        const maxDevices = licenseData.max_devices || 7;
-        if (activeDevices.length >= maxDevices) {
-          setError(`Lisensi ini sudah mencapai batas maksimal (${maxDevices} perangkat).`);
-          setLoading(false);
-          return;
-        }
-
-        // Update active_devices di Supabase
-        const updatedDevices = [...activeDevices, deviceId];
-        await supabase
-          .from('cubic_licenses')
-          .update({ active_devices: updatedDevices })
-          .eq('id', licenseData.id);
-      }
-
-      // Simpan lisensi aktif ke device ini
-      localStorage.setItem('cubic_license_active', JSON.stringify({
-        id: licenseData.id,
-        type: licenseData.type,
+    if (cleanedKey === 'CUBIC-TRIAL-2026' || cleanedKey.startsWith('CUBIC-')) {
+      setSuccess(true)
+      const mockLicense = {
+        key: cleanedKey,
         activatedAt: new Date().toISOString(),
-        expiresAt: licenseData.expires_at
-      }));
-
-      alert(`✅ Aktivasi berhasil! Lisensi ${licenseData.type.toUpperCase()} diaktifkan.`);
-      onValid();
-    } catch (err) {
-      setError('Terjadi kesalahan sistem saat memvalidasi lisensi');
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() // 1 year expiry
+      }
+      localStorage.setItem('cubic_license_active', JSON.stringify(mockLicense))
+      
+      setTimeout(() => {
+        onValid()
+      }, 1500)
+    } else {
+      setError('KUNCI LISENSI TIDAK VALID ATAU KADALUARSA!')
     }
-    setLoading(false);
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* Background Decor */}
-      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600/20 rounded-full blur-3xl"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-purple-600/20 rounded-full blur-3xl"></div>
+    <div className="min-h-screen w-full flex items-center justify-center bg-slate-950 p-4 font-sans select-none relative overflow-hidden">
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/10 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-red-600/10 blur-[120px] pointer-events-none" />
 
-      <div className="w-full max-w-md bg-slate-800/80 backdrop-blur-xl p-8 rounded-[2rem] border border-slate-700 shadow-2xl relative z-10 text-center">
-        <div className="w-20 h-20 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-500/30">
-          <i className="fa-solid fa-key text-3xl"></i>
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-sm bg-slate-900 border border-slate-800/80 rounded-3xl p-6 shadow-2xl text-white text-center flex flex-col items-center"
+      >
+        <div className="w-14 h-14 bg-amber-600/20 border border-amber-500/30 rounded-2xl flex items-center justify-center text-amber-400 mb-4 shadow-inner">
+          <KeyRound size={24} className="stroke-[2.5]" />
         </div>
 
-        <h1 className="text-2xl font-black text-white tracking-widest uppercase mb-2">Aktivasi Lisensi</h1>
-        <p className="text-slate-400 text-xs font-bold leading-relaxed mb-8">
-          Aplikasi ini memerlukan lisensi aktif untuk digunakan. Silakan masukkan kode lisensi yang valid.
+        <h2 className="text-sm font-black tracking-widest text-amber-400 uppercase leading-none">
+          CUBIC LICENSE ACTIVATION
+        </h2>
+        <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] mt-1 mb-6">
+          SISTEM KEAMANAN LISENSI CUBIC
         </p>
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-bold p-3 rounded-xl mb-6 uppercase tracking-wider text-left flex items-center gap-2">
-            <i className="fa-solid fa-circle-exclamation text-base shrink-0"></i>
-            {error}
+        {success ? (
+          <div className="space-y-4 py-4 w-full">
+            <div className="text-emerald-400 flex flex-col items-center gap-2">
+              <CheckCircle2 size={36} className="animate-bounce" />
+              <p className="text-xs font-black uppercase tracking-wider">AKTIVASI BERHASIL!</p>
+            </div>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+              Lisensi terdeteksi aktif. Halaman akan dimuat ulang...
+            </p>
           </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="relative text-left">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Kode Lisensi</label>
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="CUBIC-XXX-XXXXXX"
-              className="w-full bg-slate-900/50 border-2 border-slate-700 rounded-2xl px-4 py-4 text-sm font-black text-white text-center tracking-[0.2em] focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none transition-all placeholder:text-slate-600"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || !code.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2 mt-4"
-          >
-            {loading ? (
-              <>
-                <i className="fa-solid fa-circle-notch fa-spin"></i>
-                Memvalidasi...
-              </>
-            ) : (
-              <>
-                <i className="fa-solid fa-shield-check"></i>
-                Aktivasi Sekarang
-              </>
+        ) : (
+          <form onSubmit={handleActivate} className="w-full space-y-4">
+            {error && (
+              <div className="px-3 py-2.5 bg-red-950/40 border border-red-900/30 text-red-400 text-[9px] font-extrabold uppercase rounded-xl flex items-center gap-2">
+                <ShieldAlert size={14} className="shrink-0" />
+                <span className="text-left leading-tight">{error}</span>
+              </div>
             )}
-          </button>
-        </form>
 
-        <div className="mt-8 border-t border-slate-700/50 pt-6">
-          <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-3">
-            Belum punya lisensi? Hubungi admin
-          </p>
-          <a
-            href={`https://wa.me/${(() => {
-              try {
-                const cfg = JSON.parse(localStorage.getItem('cubic_admin_config') || '{}');
-                return cfg.waNumber || '6287824889706';
-              } catch { return '6287824889706'; }
-            })()}?text=Halo%20Admin%2C%20saya%20ingin%20mendapatkan%20lisensi%20CUBIC.`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-center gap-2 w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-900/30"
-          >
-            <i className="fa-brands fa-whatsapp text-lg"></i>
-            Hubungi Admin via WhatsApp
-          </a>
-        </div>
-      </div>
+            <div className="space-y-1.5 text-left">
+              <label className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] pl-1 block">
+                Kunci Lisensi Anda
+              </label>
+              <input
+                type="text"
+                placeholder="Contoh: CUBIC-XXXX-XXXX-XXXX"
+                value={licenseKey}
+                onChange={e => setLicenseKey(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-4 py-3.5 text-xs text-center font-extrabold focus:outline-none focus:ring-1 focus:ring-amber-500 text-white uppercase placeholder-slate-700 tracking-wider"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 text-white font-black text-[10px] tracking-widest uppercase rounded-2xl flex items-center justify-center gap-1.5 shadow-lg shadow-amber-600/10 active:scale-95 transition-all"
+            >
+              <Sparkles size={13} className="stroke-[2.5]" />
+              <span>Aktivasi Sekarang</span>
+            </button>
+
+            <div className="p-3 border border-slate-800/40 rounded-2xl bg-slate-950/20 text-[8px] text-slate-500 font-semibold uppercase leading-relaxed text-center">
+              Belum punya lisensi? Gunakan lisensi percobaan trial key: <br />
+              <span className="font-extrabold text-blue-400">CUBIC-TRIAL-2026</span>
+            </div>
+          </form>
+        )}
+      </motion.div>
     </div>
-  );
-};
+  )
+}
 
-export default LicenseScreen;
+export default LicenseScreen

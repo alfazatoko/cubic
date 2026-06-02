@@ -1,9 +1,10 @@
-import { getCategories } from '../lib/utils';
+import { getCategories, getWalletName } from '../lib/utils';
 import React, { useState, useEffect } from 'react'
-import { formatRupiah, cn, parseLocalISO, getLocalDateString } from '../lib/utils'
+import { formatRupiah, cn, parseLocalISO, getLocalDateString, isDigitalPenjualan, calculateDailyStats } from '../lib/utils'
 import type { Transaction } from '../types'
 import TransactionRow from '../components/TransactionRow'
 import type { KasirAccount } from '../components/LoginScreen'
+import { CubicLogo } from '../components/CubicLogo'
 
 interface RiwayatViewProps {
   active: boolean
@@ -41,6 +42,8 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activePcTab, setActivePcTab] = useState<'transaksi' | 'tambah-saldo'>('transaksi')
   const [isPcKategoriOpen, setIsPcKategoriOpen] = useState(false)
+  const [expandedSaldoId, setExpandedSaldoId] = useState<string | null>(null)
+  const [subSaldoFilter, setSubSaldoFilter] = useState<string>('Semua')
   
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
@@ -59,6 +62,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
   const [localSampai, setLocalSampai] = useState(props.filterTanggalAkhir)
 
   // Synchronize local states when sheet opens or outer props change
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => {
     if (isFilterOpen) {
       setLocalKategori(props.filterKategori)
@@ -87,9 +91,25 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
 
 
 
+  const pureSalesFilter = (t: Transaction) => {
+    const isLayananPelanggan = ['transfer', 'tarik tunai', 'aksesoris', 'topup', 'pembayaran'].some(cat => t.kategori.toLowerCase().includes(cat));
+    if (isLayananPelanggan) return true;
+
+    const isKhusus = (t.keterangan || '').includes('[KHUSUS]');
+    const isTambahSaldo = t.kategori.toLowerCase().startsWith('isi') || t.kategori.toLowerCase().startsWith('tambah') || t.kategori.toLowerCase().includes('inject saldo');
+    const isMutasiMode = t.kategori.toLowerCase().includes('mutasi') || t.kategori.toLowerCase().includes('setor tunai');
+    const isModal = t.kategori.toLowerCase().includes('modal awal') || t.kategori.toLowerCase().includes('modal tunai');
+    const isSistem = t.kategori === '___SYSTEM___' || !!t.kategori.toLowerCase().match(/operan shift|tutup shift|pindah saldo/);
+    return !isKhusus && !isTambahSaldo && !isModal && !isSistem && !isMutasiMode;
+  };
+
+  const mutasiKhususFilter = (t: Transaction) => {
+    return !pureSalesFilter(t);
+  };
+
   // 1. Filter berdasarkan Rentang Tanggal (Untuk Kartu Dashboard Atas)
   const dateFilteredTransactions = props.transactions.filter(t => {
-    if (t.kategori.startsWith('Isi')) return false
+    if (!pureSalesFilter(t)) return false;
     const date = t.timestamp.split('T')[0]
     return date >= props.filterTanggalMulai && date <= props.filterTanggalAkhir
   })
@@ -105,32 +125,41 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
   })
 
   // Summary untuk Kartu Atas (Total Hari/Rentang yang dipilih)
-  // DISINKRONKAN: Mengeluarkan [KHUSUS] dan [NON_TUNAI] agar cocok dengan saldo laci di Dashboard
-  const todayCount = dateFilteredTransactions.length
-  const todayVolume = dateFilteredTransactions
-    .filter(t => !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]'))
-    .reduce((s, t) => s + t.nominal, 0)
-  const todayAdmin = dateFilteredTransactions
-    .filter(t => !(t.keterangan || '').includes('[KHUSUS]') && !(t.keterangan || '').includes('[NON_TUNAI]'))
-    .reduce((s, t) => s + t.adminFee, 0)
+  const dateStats = calculateDailyStats(dateFilteredTransactions);
+  const todayCount = dateStats.totalTransaksi;
+  const todayVolume = dateStats.totalVolume;
+  const todayAdmin = dateStats.totalAdminCash;
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedTransactions = filteredTransactions.slice(startIndex, startIndex + itemsPerPage)
 
-  const totalNominal = filteredTransactions.reduce((s, t) => s + t.nominal, 0)
-  const totalAdmin = filteredTransactions.reduce((s, t) => s + t.adminFee, 0)
+  const listStats = calculateDailyStats(filteredTransactions);
+  const totalNominal = listStats.totalVolume;
+  const totalAdmin = listStats.totalAdminCash;
 
   const filteredSaldoTransactions = props.transactions.filter(t => {
-    if (!t.kategori.startsWith('Isi')) return false
+    if (!mutasiKhususFilter(t)) return false;
+    
     const date = t.timestamp.split('T')[0]
     const matchDate = date >= props.filterTanggalMulai && date <= props.filterTanggalAkhir
-    const matchType = props.activeSaldoFilter === 'Semua' || 
-                    (props.activeSaldoFilter === 'Saldo Bank' && t.kategori.includes('Saldo Bank')) ||
-                    (props.activeSaldoFilter === 'Saldo Real' && t.kategori.includes('Real Aplikasi')) ||
-                    (props.activeSaldoFilter === 'Modal Tunai' && t.kategori.includes('Modal Tunai'))
-    return matchDate && matchType
+    const matchType = props.activeSaldoFilter === 'Penyesuaian' 
+                      ? (t.kategori.includes('Real Aplikasi') || t.kategori.includes('Penyesuaian Saldo'))
+                      : (!t.kategori.includes('Real Aplikasi') && !t.kategori.includes('Penyesuaian Saldo'))
+    if (!matchDate || !matchType) return false;
+
+    if (props.activeSaldoFilter === 'Mutasi' && subSaldoFilter !== 'Semua') {
+      const katLower = t.kategori.toLowerCase();
+      if (subSaldoFilter === 'Pindah Saldo') {
+        return katLower.includes('pindah');
+      } else if (subSaldoFilter === 'Modal Awal') {
+        return katLower.includes('modal awal') || katLower.includes('modal tunai');
+      } else if (subSaldoFilter === 'Tambah Saldo') {
+        return katLower.startsWith('isi') || katLower.startsWith('tambah');
+      }
+    }
+    return true;
   })
 
   const totalSaldoNominal = filteredSaldoTransactions.reduce((s, t) => s + t.nominal, 0)
@@ -139,14 +168,15 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
     if (!props.active) return null;
 
     // Calculate stats for the second tab (Tambah Saldo)
-    const saldoBankTotal = filteredSaldoTransactions.filter(t => t.kategori.includes('Saldo Bank')).reduce((s, t) => s + t.nominal, 0)
+    const saldoBankTotal = filteredSaldoTransactions.filter(t => t.kategori.includes('Saldo Bank') || t.kategori === 'Inject Saldo' || ((t.keterangan || '').includes('[KHUSUS]') || (t.keterangan || '').includes('[NON_TUNAI]'))).reduce((s, t) => s + t.nominal, 0)
     const saldoRealTotal = filteredSaldoTransactions.filter(t => t.kategori.includes('Real Aplikasi')).reduce((s, t) => s + t.nominal, 0)
-    const modalTunaiTotal = filteredSaldoTransactions.filter(t => t.kategori.includes('Modal Tunai')).reduce((s, t) => s + t.nominal, 0)
+    const modalTunaiTotal = filteredSaldoTransactions.filter(t => t.kategori.includes('Modal Tunai') || t.kategori === 'Modal Awal').reduce((s, t) => s + t.nominal, 0)
+    const operShiftTotal = filteredSaldoTransactions.filter(t => t.kategori === 'Operan Shift').reduce((s, t) => s + t.nominal, 0)
 
     const isFullPage = props.activeView === 'view-transaksi';
 
     return (
-      <div className="flex-grow h-full flex flex-col bg-slate-50 dark:bg-slate-900 p-6 overflow-y-auto hide-scrollbar">
+      <div className={cn("flex-grow h-full flex flex-col bg-slate-50 dark:bg-slate-900 p-6 overflow-y-auto hide-scrollbar", !props.active && "hidden")}>
         {/* HEADER SECTION */}
         {isFullPage ? (
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 shrink-0">
@@ -175,7 +205,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                     : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400"
                 )}
               >
-                Mutasi Tambah Saldo ({filteredSaldoTransactions.length})
+                Mutasi & Perputaran ({filteredSaldoTransactions.length})
               </button>
             </div>
           </div>
@@ -203,7 +233,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                     : "text-slate-400 dark:text-slate-500 hover:text-slate-600"
                 )}
               >
-                Saldo ({filteredSaldoTransactions.length})
+                Mutasi ({filteredSaldoTransactions.length})
               </button>
             </div>
           </div>
@@ -211,7 +241,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
 
         {/* KPI DASHBOARD CARDS (Rendered only on dedicated full page) */}
         {isFullPage && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
             {activePcTab === 'transaksi' ? (
               <>
                 <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-slate-150 dark:border-slate-700/50 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
@@ -273,18 +303,18 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                     <i className="fa-solid fa-building-columns text-lg"></i>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Mutasi Bank</p>
+                    <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Mutasi Aset Saldo</p>
                     <p className="text-xl font-black text-slate-800 dark:text-white leading-none mt-1.5 truncate" title={formatRupiah(saldoBankTotal)}>
                       {formatRupiah(saldoBankTotal).replace(',00', '')}
                     </p>
                   </div>
                 </div>
-                <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-slate-150 dark:border-slate-700/50 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
+                <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-slate-150 dark:border-slate-700/50 shadow-sm items-center gap-4 transition-all hover:shadow-md hidden">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
                     <i className="fa-solid fa-mobile-screen text-lg"></i>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Mutasi Real App</p>
+                    <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Penyesuaian App</p>
                     <p className="text-xl font-black text-slate-800 dark:text-white leading-none mt-1.5 truncate" title={formatRupiah(saldoRealTotal)}>
                       {formatRupiah(saldoRealTotal).replace(',00', '')}
                     </p>
@@ -298,6 +328,17 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                     <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Mutasi Modal Tunai</p>
                     <p className="text-xl font-black text-slate-800 dark:text-white leading-none mt-1.5 truncate" title={formatRupiah(modalTunaiTotal)}>
                       {formatRupiah(modalTunaiTotal).replace(',00', '')}
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-slate-150 dark:border-slate-700/50 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                    <i className="fa-solid fa-money-bill-transfer text-lg"></i>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Oper Shift</p>
+                    <p className="text-xl font-black text-slate-800 dark:text-white leading-none mt-1.5 truncate" title={formatRupiah(operShiftTotal)}>
+                      {formatRupiah(operShiftTotal).replace(',00', '')}
                     </p>
                   </div>
                 </div>
@@ -394,7 +435,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                                 }}
                               />
                               <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                                {cat === 'Semua' ? 'Semua Kategori' : cat}
+                                {cat === 'Semua' ? 'Semua Kategori' : getWalletName(cat)}
                               </span>
                             </label>
                           );
@@ -446,24 +487,42 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
             </>
           ) : (
             /* Saldo Mutasi Specific Type Filters */
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Jenis Penambahan</label>
-              <div className="flex gap-1.5">
-                {['Semua', 'Saldo Bank', 'Saldo Real', 'Modal Tunai'].map(f => (
-                  <button 
-                    key={f}
-                    onClick={() => props.setActiveSaldoFilter(f)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-xl text-[9px] font-black transition-all border uppercase tracking-wider",
-                      props.activeSaldoFilter === f 
-                        ? "bg-violet-600 border-violet-600 text-white dark:bg-violet-500 dark:border-violet-500" 
-                        : "bg-slate-50 border-slate-200 text-slate-500 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                    )}
-                  >
-                    {f.replace('Saldo ', '')}
-                  </button>
-                ))}
-              </div>
+            <div className="flex-1 w-full grid grid-cols-2 gap-3 pb-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+              <button 
+                onClick={() => props.setActiveSaldoFilter('Mutasi')}
+                className={cn(
+                  "p-3 rounded-2xl flex flex-col items-start gap-1.5 transition-all text-left border-2",
+                  props.activeSaldoFilter === 'Mutasi'
+                    ? "bg-blue-50/50 border-blue-500 shadow-md shadow-blue-500/10 dark:bg-blue-900/20"
+                    : "bg-white border-slate-100 opacity-60 hover:opacity-100 dark:bg-slate-800 dark:border-slate-700"
+                )}
+              >
+                 <div className="flex items-center gap-2">
+                   <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0", props.activeSaldoFilter === 'Mutasi' ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-400 dark:bg-slate-700")}>
+                     <i className="fa-solid fa-wallet text-[10px]"></i>
+                   </div>
+                   <h4 className={cn("text-[10px] font-black uppercase tracking-widest", props.activeSaldoFilter === 'Mutasi' ? "text-blue-700 dark:text-blue-400" : "text-slate-600 dark:text-slate-400")}>Aset Saldo</h4>
+                 </div>
+                 <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 leading-tight">Riwayat masuknya saldo, mutasi, modal kasir & oper shift.</p>
+              </button>
+              
+              <button 
+                onClick={() => props.setActiveSaldoFilter('Penyesuaian')}
+                className={cn(
+                  "p-3 rounded-2xl flex flex-col items-start gap-1.5 transition-all text-left border-2",
+                  props.activeSaldoFilter === 'Penyesuaian'
+                    ? "bg-fuchsia-50/50 border-fuchsia-500 shadow-md shadow-fuchsia-500/10 dark:bg-fuchsia-900/20"
+                    : "bg-white border-slate-100 opacity-60 hover:opacity-100 dark:bg-slate-800 dark:border-slate-700"
+                )}
+              >
+                 <div className="flex items-center gap-2">
+                   <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0", props.activeSaldoFilter === 'Penyesuaian' ? "bg-fuchsia-500 text-white" : "bg-slate-100 text-slate-400 dark:bg-slate-700")}>
+                     <i className="fa-solid fa-scale-balanced text-[10px]"></i>
+                   </div>
+                   <h4 className={cn("text-[10px] font-black uppercase tracking-widest", props.activeSaldoFilter === 'Penyesuaian' ? "text-fuchsia-700 dark:text-fuchsia-400" : "text-slate-600 dark:text-slate-400")}>Catatan</h4>
+                 </div>
+                 <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 leading-tight">Penyesuaian antara catatan pembukuan & HP M-Banking.</p>
+              </button>
             </div>
           )}
 
@@ -533,17 +592,19 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                             <td className="py-3.5 px-5 text-xs font-bold text-slate-700 dark:text-slate-300">{kasirNameStr}</td>
                             <td className="py-3.5 px-5">
                               {(() => {
+                                let displayCat = (t.kategori === 'Transfer' || t.kategori === 'transfer' || t.kategori === 'Transfer Bank' || t.kategori === 'transfer bank') && t.sumber_dana ? getWalletName(t.sumber_dana).toUpperCase() : t.kategori;
                                 let badgeStyle = "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
-                                if (t.kategori === 'TRANSFER BANK' || t.kategori === 'BANK BRI') badgeStyle = "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/30";
-                                else if (t.kategori === 'DANA') badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30";
-                                else if (t.kategori === 'APLIKASI PPOB') badgeStyle = "bg-cyan-50 text-cyan-700 border-cyan-100 dark:bg-cyan-950/30 dark:text-cyan-400 dark:border-cyan-900/30";
-                                else if (t.kategori === 'ORDERKUOTA') badgeStyle = "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/30";
-                                else if (t.kategori === 'Tarik Tunai') badgeStyle = "bg-rose-50 text-rose-700 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/30";
-                                else if (t.kategori === 'Aksesoris') badgeStyle = "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100 dark:bg-fuchsia-950/30 dark:text-fuchsia-400 dark:border-fuchsia-900/30";
+                                if (displayCat === 'TRANSFER BANK' || displayCat === 'BANK BRI') badgeStyle = "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/30";
+                                else if (displayCat === 'DANA') badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30";
+                                else if (displayCat === 'APLIKASI PPOB') badgeStyle = "bg-cyan-50 text-cyan-700 border-cyan-100 dark:bg-cyan-950/30 dark:text-cyan-400 dark:border-cyan-900/30";
+                                else if (displayCat === 'ORDERKUOTA') badgeStyle = "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/30";
+                                else if (displayCat === 'Tarik Tunai') badgeStyle = "bg-rose-50 text-rose-700 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/30";
+                                else if (displayCat === 'Aksesoris') badgeStyle = "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100 dark:bg-fuchsia-950/30 dark:text-fuchsia-400 dark:border-fuchsia-900/30";
+                                else if (t.kategori === 'Transfer' || isDigitalPenjualan(displayCat)) badgeStyle = "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/30";
                                 
                                 return (
                                   <span className={cn("text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border whitespace-nowrap", badgeStyle)}>
-                                    {t.kategori}
+                                    {displayCat}
                                   </span>
                                 );
                               })()}
@@ -733,16 +794,16 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
   }
 
   return (
-    <div className={cn("page-view hide-scrollbar", props.active && "active")} style={{ backgroundColor: 'var(--container-bg, #ffffff)' }}>
+    <div className={cn("page-view hide-scrollbar", !props.active && "hidden", props.isPc && "flex-1 h-full w-full overflow-y-auto")} style={{ backgroundColor: 'var(--container-bg, #ffffff)' }}>
       {/* HEADER TOKO IDENTIK BERANDA */}
-      <div className="relative theme-header" style={{ paddingBottom: '2.5rem' }}>
+      <div className="relative bg-gradient-to-br from-blue-700 to-blue-800 rounded-b-[2rem] shadow-md" style={{ paddingBottom: '2.5rem' }}>
         <div className="px-4 pt-12 pb-2 flex items-center justify-between gap-3">
           <div className="flex-1 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {props.storePhoto ? (
                 <img src={props.storePhoto} alt="Logo" className="w-12 h-12 rounded-full object-cover border-2 border-white/50 shadow-md" />
               ) : (
-                <img src="/logo_icon.png" alt="Logo" className="w-12 h-12 object-contain" />
+                <CubicLogo size={12} className="w-12 h-12" />
               )}
               <div>
                 <h1 className="text-[13px] font-black text-white leading-tight uppercase tracking-widest">{props.storeName || 'APLIKASI CUBIC'}</h1>
@@ -803,7 +864,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
         )}
       </div>
 
-      <div className="px-1.5 pb-20 pt-3">
+      <div className="px-1.5 pb-40 pt-3">
         {/* FILTER BARU (Filter Transaksi) - COMPACT MOBILE */}
         <div className="mb-3">
           <button 
@@ -815,7 +876,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
               <div className="min-w-0 flex-1 flex items-center gap-1.5">
                 <span className="text-[9px] font-black text-slate-800 uppercase tracking-wider shrink-0">Filter:</span>
                 <span className="text-[8px] text-slate-500 font-bold uppercase tracking-tighter truncate">
-                  {props.filterKategori.includes('Semua') ? 'Semua Kategori' : props.filterKategori.join(', ')}
+                  {props.filterKategori.includes('Semua') ? 'Semua Kategori' : props.filterKategori.map(c => getWalletName(c)).join(', ')}
                   {props.filterPencarian ? ` • "${props.filterPencarian}"` : ''}
                   {` • ${props.filterTanggalMulai === props.filterTanggalAkhir ? props.filterTanggalMulai : `${props.filterTanggalMulai} - ${props.filterTanggalAkhir}`}`}
                 </span>
@@ -846,9 +907,11 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
         </div>
 
         {/* DAFTAR TRANSAKSI SECTION */}
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-4 bg-violet-600 rounded-full"></div>
-          <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Daftar Transaksi</h3>
+        <div className="mb-4 mt-8 flex flex-col items-center justify-center text-center">
+          <h3 className="text-[13px] font-black text-slate-800 uppercase tracking-widest leading-none mb-1.5 flex items-center justify-center gap-2">
+             Riwayat Daftar Transaksi
+          </h3>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Daftar riwayat seluruh transaksi</p>
         </div>
 
         <div className="flex flex-col">
@@ -903,28 +966,79 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
         )}
 
         {/* RIWAYAT TAMBAH SALDO SECTION (Rapat) */}
-        <div className="mt-4 pt-4 border-t border-slate-100">
-          <div className="flex items-center gap-2 mb-4">
-            <i className="fa-solid fa-wallet text-blue-600 text-xs"></i>
-            <h3 className="text-[10px] font-black text-slate-800 tracking-widest">RIWAYAT TAMBAH SALDO</h3>
-          </div>
-
-          <div className="flex gap-1 mb-4">
-            {['Semua', 'Saldo Bank', 'Saldo Real', 'Modal Tunai'].map(f => (
+        <div className="mt-8 pt-6 border-t-4 border-slate-100/50">
+           <div className="mb-6 flex flex-col items-center justify-center text-center">
+             <h3 className="text-[13px] font-black text-slate-800 uppercase tracking-widest leading-none mb-1.5 flex items-center justify-center gap-2">Riwayat Keuangan Aset Saldo</h3>
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest max-w-[280px] leading-normal">Riwayat Tambah / Mutasi saldo &amp; Kolom penyesuaian Catatan Saldo bank</p>
+           </div>
+           
+           <div className="flex gap-2 mb-4">
               <button 
-                key={f}
-                onClick={() => props.setActiveSaldoFilter(f)}
+                onClick={() => props.setActiveSaldoFilter('Mutasi')}
                 className={cn(
-                  "flex-1 py-2 rounded-xl text-[8px] font-black transition-all border",
-                  props.activeSaldoFilter === f 
-                    ? "bg-violet-600 border-violet-600 text-white" 
-                    : "bg-white border-slate-100 text-slate-400"
+                  "flex-1 p-3 rounded-2xl flex flex-col items-center text-center gap-1.5 transition-all border-2 group",
+                  props.activeSaldoFilter === 'Mutasi'
+                    ? "bg-blue-50 border-blue-500 shadow-md shadow-blue-500/10"
+                    : "bg-white border-slate-100 hover:bg-slate-50 opacity-60 hover:opacity-100"
                 )}
               >
-                {f.replace('Saldo ', '').toUpperCase()}
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center shrink-0 mb-0.5",
+                    props.activeSaldoFilter === 'Mutasi' ? "bg-blue-500 text-white shadow-inner" : "bg-slate-100 text-slate-400"
+                  )}>
+                    <i className="fa-solid fa-wallet text-[12px]"></i>
+                  </div>
+                 <h4 className={cn(
+                   "text-[9px] font-black uppercase tracking-widest leading-tight",
+                   props.activeSaldoFilter === 'Mutasi' ? "text-blue-700" : "text-slate-600"
+                 )}>Riwayat Tambah / Mutasi Aset Saldo</h4>
+                 <p className="text-[8px] font-bold text-slate-400 leading-tight">Riwayat pemasukan dan perputaran aset saldo</p>
               </button>
-            ))}
-          </div>
+              
+              <button 
+                onClick={() => props.setActiveSaldoFilter('Penyesuaian')}
+                className={cn(
+                  "flex-1 p-3 rounded-2xl flex flex-col items-center text-center gap-1.5 transition-all border-2 group",
+                  props.activeSaldoFilter === 'Penyesuaian'
+                    ? "bg-fuchsia-50 border-fuchsia-500 shadow-md shadow-fuchsia-500/10"
+                    : "bg-white border-slate-100 hover:bg-slate-50 opacity-60 hover:opacity-100"
+                )}
+              >
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center shrink-0 mb-0.5",
+                    props.activeSaldoFilter === 'Penyesuaian' ? "bg-fuchsia-500 text-white shadow-inner" : "bg-slate-100 text-slate-400"
+                  )}>
+                    <i className="fa-solid fa-scale-balanced text-[12px]"></i>
+                  </div>
+                 <h4 className={cn(
+                   "text-[9px] font-black uppercase tracking-widest leading-tight",
+                   props.activeSaldoFilter === 'Penyesuaian' ? "text-fuchsia-700" : "text-slate-600"
+                 )}>Riwayat Penyesuaian Catatan</h4>
+                 <p className="text-[8px] font-bold text-slate-400 leading-tight">Membadingkan saldo catatan pembukuan & M-Banking</p>
+              </button>
+            </div>
+
+            {props.activeSaldoFilter === 'Mutasi' && (
+              <div className="flex items-center gap-1.5 px-0.5 py-1 mb-4 overflow-x-auto hide-scrollbar">
+                {['Semua', 'Pindah Saldo', 'Modal Awal', 'Tambah Saldo'].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => {
+                      setSubSaldoFilter(f);
+                      setExpandedSaldoId(null);
+                    }}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all border shrink-0",
+                      subSaldoFilter === f
+                        ? "bg-blue-600 border-blue-600 text-white shadow-md active:scale-95"
+                        : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 active:scale-95"
+                    )}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            )}
 
           <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
             <div className="divide-y divide-slate-50">
@@ -937,19 +1051,30 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                     const canDelete = isToday && props.kasirRole === 'owner'
 
                     return (
-                    <div key={t.id} className="py-2 px-4 flex flex-col gap-1.5 hover:bg-slate-50/50 transition-colors">
-                       <div className="flex justify-between items-center">
+                    <div key={t.id} className="flex flex-col group">
+                       <div 
+                         className="py-3 px-4 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 active:bg-slate-100 transition-colors"
+                         onClick={() => setExpandedSaldoId(expandedSaldoId === t.id ? null : t.id)}
+                       >
                          <div className="flex gap-4 items-center">
-                            <div className="text-[9px] font-black text-slate-300 w-4">{i+1}</div>
-                            <div className="flex flex-col gap-0">
+                            <div className="flex flex-col items-center justify-center text-center select-none w-5 shrink-0">
+                               <span className="text-[10px] font-black text-slate-400 leading-none">{i+1}</span>
+                               <i 
+                                 className={cn(
+                                   "fa-solid mt-1 text-[8px] transition-colors duration-200",
+                                   expandedSaldoId === t.id ? "fa-chevron-up text-blue-600 font-black" : "fa-chevron-down text-slate-400"
+                                 )}
+                               />
+                             </div>
+                            <div className="flex flex-col gap-0.5">
                                <div className={cn(
-                                 "text-[13px] font-black uppercase leading-tight",
+                                 "text-[13px] font-black uppercase leading-none",
                                  t.kategori.includes('Bank') ? "text-blue-600" : 
                                  t.kategori.includes('Real') ? "text-emerald-600" : "text-fuchsia-600"
                                )}>
                                  {t.kategori.replace('Isi ', 'TAMBAH ')}
                                </div>
-                               <div className="text-[10px] text-slate-400 font-bold">
+                               <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
                                   {(() => {
                                     const d = parseLocalISO(t.timestamp);
                                     return `${d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} • ${d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`
@@ -958,31 +1083,42 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                             </div>
                          </div>
                           <div className="text-right flex flex-col items-end gap-0">
-                            <div className="text-[13px] font-black text-slate-800 leading-tight">{formatRupiah(t.nominal).replace(',00', '')}</div>
-                            <div className="text-[10px] text-slate-400 font-bold italic truncate max-w-[120px]">{t.keterangan || '-'}</div>
+                            <div className="text-[14px] font-black text-slate-800 leading-tight">{formatRupiah(t.nominal).replace(',00', '')}</div>
+                            <div className="text-[9px] text-slate-400 font-bold italic truncate max-w-[120px] uppercase tracking-wider mt-0.5">{t.keterangan || '-'}</div>
                          </div>
                        </div>
                        
-                       <div className="flex justify-end items-center gap-2 border-t border-slate-100 pt-2 mt-0.5">
-                         {canEdit ? (
-                           <button 
-                             onClick={() => props.onEdit(t)}
-                             className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"
-                           >
-                             <i className="fa-solid fa-pen text-[8px]"></i> EDIT
-                           </button>
-                         ) : (
-                           <span className="text-[8px] text-slate-400 font-bold italic py-1 px-2.5 bg-slate-50 rounded-lg">LOCKED</span>
-                         )}
-                         {canDelete && (
-                           <button 
-                             onClick={() => props.onDelete?.(t)}
-                             className="bg-rose-50 text-rose-600 w-7 h-7 rounded-lg flex items-center justify-center"
-                           >
-                             <i className="fa-solid fa-trash-can text-[9px]"></i>
-                           </button>
-                         )}
-                       </div>
+                       {expandedSaldoId === t.id && (
+                         <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 bg-slate-50/30 animate-in slide-in-from-top-1 duration-200">
+                           <div className="flex flex-col gap-0.5">
+                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Keterangan:</span>
+                             <span className="text-[11px] font-bold text-slate-700 leading-tight">
+                               {t.keterangan || '-'}
+                               {t.isEdited && <span className="ml-1 text-[7px] bg-amber-100 text-amber-700 px-1 rounded font-black">EDIT</span>}
+                             </span>
+                           </div>
+                           <div className="flex justify-end items-center gap-2">
+                             {canEdit ? (
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); props.onEdit(t); }}
+                                 className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all active:scale-95 border border-blue-100/50 hover:bg-blue-600 hover:text-white"
+                               >
+                                 <i className="fa-solid fa-pen text-[9px]"></i> EDIT
+                               </button>
+                             ) : (
+                               <span className="text-[9px] text-slate-400 font-bold italic py-1.5 px-3 bg-slate-100/80 rounded-xl">LOCKED</span>
+                             )}
+                             {canDelete && (
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); props.onDelete?.(t); }}
+                                 className="bg-rose-50 text-rose-600 w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95 border border-rose-100/50 hover:bg-rose-600 hover:text-white"
+                               >
+                                 <i className="fa-solid fa-trash-can text-[10px]"></i>
+                               </button>
+                             )}
+                           </div>
+                         </div>
+                       )}
                     </div>
                     )
                   })
@@ -1047,7 +1183,7 @@ const RiwayatView: React.FC<RiwayatViewProps> = (props) => {
                           }
                         }}
                       />
-                      <span className="text-xs font-bold text-slate-700">{cat === 'Semua' ? 'Semua Kategori' : cat}</span>
+                      <span className="text-xs font-bold text-slate-700">{cat === 'Semua' ? 'Semua Kategori' : getWalletName(cat)}</span>
                     </label>
                   ))}
                 </div>

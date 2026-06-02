@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import type { Transaction } from '../types'
-import { cn, parseLocalISO, getLocalDateString } from '../lib/utils'
+import { cn, parseLocalISO, getLocalDateString, getWalletName } from '../lib/utils'
 
 interface TransactionRowProps {
   t: Transaction
@@ -14,6 +14,10 @@ const TransactionRow: React.FC<TransactionRowProps> = ({ t, index, onEdit, onDel
   const [isOpen, setIsOpen] = useState(false)
   const dateObj = parseLocalISO(t.timestamp)
   const jam = dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+
+  const isTransfer = t.kategori?.toLowerCase() === 'transfer' || t.kategori?.toLowerCase() === 'transfer bank';
+  const targetId = isTransfer && t.sumber_dana ? t.sumber_dana : t.kategori;
+  const displayCatName = getWalletName(targetId);
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -49,7 +53,7 @@ const TransactionRow: React.FC<TransactionRowProps> = ({ t, index, onEdit, onDel
           {/* INFO UTAMA */}
           <div className="flex flex-col gap-0">
             <div className={cn("text-[13px] font-black tracking-tight uppercase leading-tight", rowColorClass)}>
-               {t.kategori}
+               {displayCatName}
             </div>
             <div className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.15em]">
                {dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} • {jam}

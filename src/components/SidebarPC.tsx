@@ -1,6 +1,7 @@
 import React from 'react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { CubicLogo } from './CubicLogo'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -32,10 +33,9 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
   const menuItems = [
     { id: 'view-beranda', label: 'Transaksi', icon: 'fa-house' },
     { id: 'view-transaksi', label: 'Riwayat', icon: 'fa-clock' },
-    { id: 'view-isi-saldo', label: 'Isi Saldo', icon: 'fa-wallet' },
+    { id: 'view-isi-saldo', label: 'Aset Digital', icon: 'fa-wallet' },
     { id: 'view-laporan', label: 'Laporan', icon: 'fa-chart-simple' },
-    { id: 'view-akun', label: 'Akun & Kepala Toko', icon: 'fa-user-tie' },
-    { id: 'view-otomatis', label: 'Otomatis', icon: 'fa-wand-magic-sparkles' }
+    { id: 'view-akun', label: 'Akun & Kepala Toko', icon: 'fa-user-tie' }
   ]
 
   return (
@@ -50,9 +50,7 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
               alt="Logo" 
             />
           ) : (
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center border border-blue-500 shadow-lg shrink-0">
-              <i className="fa-solid fa-store text-lg text-white"></i>
-            </div>
+            <CubicLogo size={10} className="w-10 h-10 -ml-1 saturate-[1.2]" />
           )}
           <div className="min-w-0 flex-1">
             <h3 className="font-black text-xs text-blue-400 tracking-wider truncate leading-tight uppercase">
@@ -71,7 +69,7 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
           Navigasi Utama
         </span>
         {menuItems.map((item) => {
-          const isActive = activeView === item.id || (item.id === 'view-beranda' && activeView.startsWith('view-owner-') && activeView !== 'view-owner-laporan' && activeView !== 'view-owner-monitor' && activeView !== 'view-owner-grafik' && activeView !== 'view-owner-performa' && activeView !== 'view-owner-absen' && activeView !== 'view-owner-izin' && activeView !== 'view-owner-gaji' && activeView !== 'view-owner-saldo' && activeView !== 'view-owner-backup' && activeView !== 'view-owner-audit')
+          const isActive = activeView === item.id || (item.id === 'view-beranda' && activeView.startsWith('view-owner-') && activeView !== 'view-owner-laporan' && activeView !== 'view-owner-monitor' && activeView !== 'view-owner-grafik' && activeView !== 'view-owner-performa' && activeView !== 'view-owner-absen' && activeView !== 'view-owner-izin' && activeView !== 'view-owner-gaji' && activeView !== 'view-owner-backup' && activeView !== 'view-owner-audit')
           
           return (
             <button
@@ -135,9 +133,7 @@ const SidebarPC: React.FC<SidebarPCProps> = ({
               { id: 'view-owner-absen', label: 'Absensi Karyawan', icon: 'fa-fingerprint' },
               { id: 'view-owner-izin', label: 'Izin Karyawan', icon: 'fa-calendar-day' },
               { id: 'view-owner-gaji', label: 'Penggajian', icon: 'fa-dollar-sign' },
-              { id: 'view-owner-saldo', label: 'Manajemen Saldo', icon: 'fa-wallet' },
               { id: 'view-owner-audit', label: 'Audit Laci', icon: 'fa-file-signature' },
-              { id: 'view-owner-kategori', label: 'Kategori Transaksi', icon: 'fa-tags' },
               { id: 'view-owner-backup', label: 'Backup & Reset', icon: 'fa-database' },
             ].map((item) => {
               const isActive = activeView === item.id;

@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react'
-import { formatRupiah, formatInputRupiah, cn, getLocalISOString, getLocalDateString, parseLocalISO, getCategories, getCategoriesConfig } from '../lib/utils'
+import { formatRupiah, formatInputRupiah, cn, getLocalISOString, getLocalDateString, parseLocalISO, getCategories, getWalletName, getCategoriesConfig, isDigitalPenjualan, calculateDailyStats } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import TransactionForm from '../components/TransactionForm'
 import SummaryCards from '../components/SummaryCards'
 import type { Transaction, Store } from '../types'
 import { saveKasirAccounts, type KasirAccount } from '../components/LoginScreen'
+import { CubicLogo } from '../components/CubicLogo'
+
 interface BerandaViewProps {
   active: boolean
+  walletBalances: Record<string, number>
   activeView: string
   setIsSidePanelOpen: (v: boolean) => void
   setActiveView: (v: string) => void
@@ -15,6 +18,10 @@ interface BerandaViewProps {
   lastTx?: Transaction
   formKategori: string
   setFormKategori: (v: string) => void
+  formSumberDana: string
+  setFormSumberDana: (v: string) => void
+  formTujuanDana: string
+  setFormTujuanDana: (v: string) => void
   formNominal: string
   setFormNominal: (v: string) => void
   formAdmin: string
@@ -58,6 +65,7 @@ interface BerandaViewProps {
   setPantauStoreId?: (id: string | 'all') => void
   stores?: Store[]
   isPc?: boolean
+  allTransactions?: Transaction[]
 }
 
 const CyclingText: React.FC<{ texts: { text: string, isMain: boolean }[] }> = ({ texts }) => {
@@ -659,6 +667,8 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
   }, [])
 
   const [showRincian, setShowRincian] = useState(false)
+  const [rincianTab, setRincianTab] = useState<'ASET_DIGITAL' | 'LACI_KASIR'>('ASET_DIGITAL')
+  const [showWalletDetail, setShowWalletDetail] = useState(false)
   const [showLainnya, setShowLainnya] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [newCatFormat, setNewCatFormat] = useState('nominal_admin')
@@ -696,6 +706,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
   const [auditHistory, setAuditHistory] = useState<any[]>([])
   const STORAGE_KEY_AUDIT = `alphaPro_${currentTargetStoreId}_auditHistory`
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY_AUDIT)
     if (saved) setAuditHistory(JSON.parse(saved))
@@ -738,12 +749,13 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
   const activeOwnerSubView = props.activeView?.startsWith('view-owner-') ? props.activeView.replace('view-owner-', '') : null
   const isOwnerSubView = !!activeOwnerSubView
 
-  // Auto-close sub-panels when navigating away to any other view
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => {
     setShowRincian(false)
     setShowLainnya(false)
   }, [props.activeView])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => {
     if (activeOwnerSubView === 'izin') {
       try {
@@ -783,75 +795,59 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
   const fullDate = currentTime.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
   const clockStr = currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   
-  const totalPendapatanBersih = props.totalSaldoKas
-  const penjualanDigital = props.penjualanDigital
-  const kasModal = props.kasModal
-
-
-  // Recalculate Owner Control stats to match RiwayatView behavior
   const todayISO = getLocalDateString()
+
+  // Recalculate Owner Control stats to match RiwayatView behavior (and for Dashboard)
   const ownerDisplayTxs = props.kasirRole === 'owner' 
     ? (props.filterKasir && props.filterKasir !== 'Semua' ? props.transactions.filter(t => t.kasir_id === props.filterKasir) : props.transactions)
     : props.transactions.filter(t => t.kasir_id === props.username);
   
-  const ownerTodayTxs = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO) && !t.kategori.startsWith('Isi'))
-  
-  const ownerTotalVolume = ownerTodayTxs.reduce((s, t) => s + t.nominal, 0)
-  const ownerTotalAdmin = ownerTodayTxs.filter(t => 
-    !(t.keterangan || '').includes('[ADMIN_DALAM]') && 
-    !(t.keterangan || '').includes('[KHUSUS]') && 
-    !(t.keterangan || '').includes('[NON_TUNAI]')
-  ).reduce((s, t) => s + t.adminFee, 0)
-  const ownerTotalTrx = ownerTodayTxs.length
+  const ownerTodayTxs = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO))
+  const dailyStats = calculateDailyStats(ownerTodayTxs)
 
-  // Recalculate other stats for the 'Ringkasan Harian' modal consistency
-  const ownerTotalAksesoris = ownerTodayTxs.filter(t => 
-    t.kategori === 'Aksesoris' && 
-    !(t.keterangan || '').includes('[KHUSUS]') && 
-    !(t.keterangan || '').includes('[NON_TUNAI]')
-  ).reduce((s, t) => s + t.nominal, 0)
+  const ownerTotalVolume = dailyStats.totalVolume;
+  const ownerTotalAdmin = dailyStats.totalAdminCash; 
+  const ownerTotalTrx = dailyStats.totalTransaksi;
   
-  const ownerTotalTarik = ownerTodayTxs.filter(t => 
-    t.kategori === 'Tarik Tunai' && 
-    !(t.keterangan || '').includes('[KHUSUS]') && 
-    !(t.keterangan || '').includes('[NON_TUNAI]')
-  ).reduce((s, t) => s + t.nominal, 0)
-  
-  const ownerPenjualanDigital = ownerTodayTxs.filter(t => 
-    (getCategories().includes(t.kategori) || ['Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB'].includes(t.kategori)) && 
-    !(t.keterangan || '').includes('[KHUSUS]') && 
-    !(t.keterangan || '').includes('[NON_TUNAI]')
-  ).reduce((s, t) => s + t.nominal, 0)
-  
-  const ownerKasModal = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO) && t.kategori === 'Isi Modal Tunai Kasir').reduce((s, t) => s + t.nominal, 0)
-  
-  // Kas Lain Nya Calculations (Matching LaporanView logic)
-  const ownerAdminDalam = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO) && (t.keterangan || '').includes('[ADMIN_DALAM]')).reduce((s, t) => s + t.adminFee, 0)
-  const ownerNonTunai = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO) && (t.keterangan || '').includes('[NON_TUNAI]')).reduce((s, t) => s + t.nominal + t.adminFee, 0)
-  const ownerKhusus = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO) && (t.keterangan || '').includes('[KHUSUS]')).reduce((s, t) => s + t.nominal + t.adminFee, 0)
+  const ownerTotalLaci = dailyStats.saldoLaciKasir;
+  const ownerSaldoBank = dailyStats.saldoBank;
 
-  const ownerTotalLaci = ownerKasModal + ownerPenjualanDigital + ownerTotalAksesoris + ownerTotalAdmin - ownerTotalTarik
-  
-  // ownerSaldoBank calculation (Contribution to bank balance/plafon)
-  const ownerTotalBankOut = ownerTodayTxs.filter(t => 
-    (getCategories().includes(t.kategori) || ['Transfer Bank', 'TRANSFER BANK', 'BANK BRI', 'DANA', 'SHOPEEPAY', 'FLIP', 'Order Kuota', 'ORDERKUOTA', 'APLIKASI PPOB'].includes(t.kategori))
-  ).reduce((s, t) => s + t.nominal, 0)
-  
-  const ownerIsiBank = ownerDisplayTxs.filter(t => t.timestamp.startsWith(todayISO) && t.kategori === 'Isi Saldo Bank').reduce((s, t) => s + t.nominal, 0)
-  const ownerSaldoBank = ownerIsiBank - ownerTotalBankOut
+  const ownerKasModal = dailyStats.kasModal;
+  const ownerPenjualanDigital = dailyStats.penjualanDigital;
+  const ownerTotalAksesoris = dailyStats.penjualanAksesoris;
+  const ownerTotalTarik = dailyStats.tarikTunai;
+  const ownerAdminDalam = dailyStats.adminDalam;
+  const ownerNonTunai = dailyStats.totalNonTunai;
+  const ownerKhusus = dailyStats.totalKhusus;
+
+  // For the legacy view usage above (props-based)
+  const penjualanDigital = dailyStats.penjualanDigital;
+  const kasModal = dailyStats.kasModal;
+  const totalPendapatanBersih = dailyStats.saldoLaciKasir; // since it calculates net physically added minus drawer start: wait, just use saldoLaciKasir if needed.
 
   return (
-    <div className={cn("page-view hide-scrollbar", props.active && "active")}>
+    <div className={cn("page-view hide-scrollbar", !props.active && "hidden")}>
       {!(props.isPc && isOwnerSubView) && (
         <>
-          <div className="relative theme-header" style={{ paddingBottom: '2.5rem' }}>
-        <div className="px-4 pt-12 pb-2 flex items-center justify-between gap-3">
+          <div className="relative bg-gradient-to-br from-blue-700 to-blue-800 rounded-b-[2rem] shadow-md" style={{ paddingBottom: '2.5rem' }}>
+            
+            {/* Badge Toko Aktif - Sangat Mencolok */}
+            <div className="absolute top-3 inset-x-0 flex justify-center z-10 pointer-events-none">
+              <div className="bg-amber-400 text-amber-950 px-4 py-1.5 rounded-full shadow-[0_4px_15px_rgba(251,191,36,0.3)] border border-amber-300 flex items-center gap-2 max-w-[80%]">
+                <i className="fa-solid fa-store animate-bounce"></i>
+                <span className="text-[10px] font-black uppercase tracking-widest truncate">
+                  AKSES TOKO: {props.activeStoreId === 'all' ? 'SEMUA TOKO' : (props.storeName || 'TOKO UTAMA')}
+                </span>
+              </div>
+            </div>
+
+        <div className="px-4 pt-14 pb-2 flex items-center justify-between gap-3">
           <div className="flex-1 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {props.storePhoto ? (
                 <img src={props.storePhoto} alt="Logo" className="w-12 h-12 rounded-full object-cover border-2 border-white/50 shadow-md" />
               ) : (
-                <img src="/logo_icon.png" alt="Logo" className="w-12 h-12 object-contain" />
+                <CubicLogo size={12} className="w-12 h-12" />
               )}
               <div>
                 <h1 className="text-[13px] font-black text-white leading-tight uppercase tracking-widest">{props.storeName || 'APLIKASI CUBIC'}</h1>
@@ -936,7 +932,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
 
         <div className="flex justify-between items-start mb-2">
           <div>
-            <p className="text-[11px] text-gray-600 font-black uppercase tracking-widest">SALDO BANK</p>
+            <p className="text-[11px] text-gray-600 font-black uppercase tracking-widest">ASET DIGITAL</p>
             <h2 className="text-base font-black tracking-tight text-blue-800">{formatRupiah(props.saldoBank)}</h2>
           </div>
           <div className="text-right">
@@ -981,158 +977,189 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
             })()}
           </div>
         </div>
-      )}      {showRincian && (
-        <div className="absolute inset-0 z-[110] bg-white flex flex-col animate-in slide-in-from-right duration-300">
-          {/* Header Section */}
-          <div className="bg-gradient-to-r from-blue-700 to-indigo-800 pt-6 pb-6 px-6 text-white shadow-lg relative shrink-0">
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={() => setShowRincian(false)} 
-                className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all border border-white/10"
-              >
-                <i className="fa-solid fa-arrow-left text-base"></i>
-              </button>
-              <div>
-                <h3 className="font-black text-xl tracking-tight uppercase leading-none">RINCIAN KEUANGAN</h3>
-                <p className="text-[10px] text-blue-100 font-bold uppercase tracking-widest mt-1 opacity-70">Arus Kas Hari Ini</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Scrollable Content Section */}
-          <div className="flex-1 overflow-y-auto bg-gray-50/50 pb-28">
-            <div className="p-2.5 space-y-2">
-              
-              {/* SALDO BANK CARD */}
-              <div className="bg-white p-2.5 rounded-2xl shadow-sm border border-blue-50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                    <i className="fa-solid fa-building-columns text-xs"></i>
-                  </div>
-                  <div>
-                    <h4 className="text-[12px] font-black text-blue-900 uppercase leading-none">SALDO BANK</h4>
-                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">Aset Digital</p>
-                  </div>
-                </div>
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-2.5 rounded-xl border border-blue-400 relative overflow-hidden">
-                  <div className="flex justify-between items-center relative z-10">
-                    <span className="text-[9px] font-black text-blue-50 uppercase tracking-widest">Total Saldo Bank</span>
-                    <span className="text-base font-black text-white tabular-nums">{formatRupiah(props.saldoBank)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* KAS MASUK SECTION */}
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-emerald-50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-                    <i className="fa-solid fa-arrow-down text-xs"></i>
-                  </div>
-                  <div>
-                    <h4 className="text-[12px] font-black text-emerald-900 uppercase leading-none">KAS MASUK</h4>
-                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">Uang masuk laci</p>
-                  </div>
-                </div>
-
-                <div className="space-y-0">
-                  {[
-                    { label: 'Modal Tunai Kasir', val: kasModal },
-                    { label: 'Penjualan Digital', val: penjualanDigital },
-                    { label: 'Penjualan Aksesoris', val: props.totalAksesoris },
-                    { label: 'Total Admin Fee', val: props.totalAdmin }
-                  ].map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center py-1 px-2 border-b border-gray-50 last:border-0">
-                      <div>
-                        <p className="text-[10px] font-black text-gray-800 uppercase leading-none">{item.label}</p>
-                      </div>
-                      <span className="text-[11px] font-black text-emerald-600 tabular-nums">{formatRupiah(item.val)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* KAS LAINNYA SECTION */}
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-orange-50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600">
-                    <i className="fa-solid fa-layer-group text-xs"></i>
-                  </div>
-                  <div>
-                    <h4 className="text-[12px] font-black text-orange-900 uppercase leading-none">KAS LAIN NYA</h4>
-                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">Pemasukan tambahan</p>
-                  </div>
-                </div>
-
-                <div className="space-y-0">
-                  {[
-                    { label: 'Transaksi Khusus', val: props.totalKhusus || 0 },
-                    { label: 'Transaksi Non Tunai', val: props.totalNonTunai || 0 },
-                    { label: 'Total Kas Lainnya', val: props.kasLainnya }
-                  ].map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center py-1 px-2 border-b border-gray-50 last:border-0">
-                      <div>
-                        <p className="text-[10px] font-black text-gray-800 uppercase leading-none">{item.label}</p>
-                      </div>
-                      <span className="text-[11px] font-black text-orange-600 tabular-nums">{formatRupiah(item.val)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* KAS KELUAR SECTION */}
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-red-50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-red-600">
-                    <i className="fa-solid fa-arrow-up text-xs"></i>
-                  </div>
-                  <div>
-                    <h4 className="text-[12px] font-black text-red-900 uppercase leading-none">KAS KELUAR</h4>
-                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">Uang keluar laci</p>
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-center p-2 rounded-xl bg-red-50/30 border border-red-100">
-                  <div>
-                    <p className="text-[10px] font-black text-gray-800 uppercase tracking-tight leading-none">Tarik Tunai Nasabah</p>
-                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-tighter mt-0.5">Penarikan Tunai</p>
-                  </div>
-                  <span className="text-[11px] font-black text-red-600 tabular-nums">-{formatRupiah(props.totalTarik)}</span>
-                </div>
-              </div>
-
-              {/* TOTAL FINAL CARD */}
-              <div className="bg-[#051c5f] p-4 rounded-2xl text-white shadow-lg relative overflow-hidden border border-blue-400/20">
-                <div className="relative z-10 text-center">
-                  <span className="text-[8px] font-black uppercase tracking-[0.2em] text-blue-300">SALDO LACI KASIR</span>
-                  <h2 className="text-2xl font-black text-green-400 tracking-tighter mt-0.5 mb-2 drop-shadow-md">
-                    {formatRupiah(totalPendapatanBersih)}
-                  </h2>
-                  <div className="pt-2 border-t border-white/10">
-                    <p className="text-[7px] font-bold text-blue-200/60 uppercase tracking-tighter leading-none italic">
-                      RUMUS: (MODAL + DIGITAL + AKSESORIS + ADMIN) - TARIK
-                    </p>
-                    <p className="text-[6px] text-blue-300/40 uppercase mt-1 tracking-widest font-bold">
-                      *KAS LAINNYA TIDAK MEMPENGARUHI SALDO LACI
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* ACTION BUTTON */}
-              <button 
-                onClick={() => {
-                  setShowRincian(false);
-                  props.setActiveView('view-laporan');
-                }}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] mt-0"
-              >
-                <i className="fa-solid fa-chart-simple text-xs"></i>
-                Laporan Lengkap
-              </button>
-            </div>
-          </div>
-        </div>
       )}
+      {showRincian && (() => {
+        const wallets = getCategories();
+        const digitalWallets = wallets.filter(w => w.toUpperCase() !== 'LACI KASIR');
+
+        const getIconForWallet = (name: string) => {
+          const n = name.toUpperCase();
+          if (n.includes('BANK') || n.includes('BRI')) return 'fa-building-columns text-blue-500';
+          if (n.includes('DANA')) return 'fa-wallet text-sky-500';
+          if (n.includes('SHOPEE')) return 'fa-bag-shopping text-orange-500';
+          if (n.includes('KASIR')) return 'fa-cash-register text-emerald-500';
+          if (n.includes('NON TUNAI') || n.includes('DOMPET')) return 'fa-qrcode text-purple-500';
+          if (n.includes('KUOTA') || n.includes('PPOB')) return 'fa-bolt text-yellow-500';
+          return 'fa-vault text-slate-500';
+        };
+
+        return (
+          <div className="absolute inset-0 z-[110] bg-white flex flex-col animate-in slide-in-from-right duration-300">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 pt-6 pb-6 px-6 text-white shadow-lg relative shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setShowRincian(false)} 
+                    className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all border border-white/10"
+                  >
+                    <i className="fa-solid fa-arrow-left text-base"></i>
+                  </button>
+                  <div>
+                    <h3 className="font-black text-xl tracking-tight uppercase leading-none">RINCIAN KEUANGAN</h3>
+                    <p className="text-[10px] text-blue-100 font-bold uppercase tracking-widest mt-1 opacity-70">Arus Kas Hari Ini</p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setShowRincian(false)} 
+                  className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all border border-white/10 text-white"
+                  title="Keluar"
+                  id="close-rincian-btn"
+                >
+                  <i className="fa-solid fa-xmark text-lg"></i>
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Content Section */}
+            <div className="flex-1 overflow-y-auto bg-gray-50 pb-40">
+              {/* === TABS SECTION === */}
+              <div className="flex p-2.5 gap-2 bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
+                <button
+                  onClick={() => setRincianTab('ASET_DIGITAL')}
+                  className={cn(
+                    "flex-1 py-3 rounded-[1rem] text-[9px] font-black uppercase tracking-widest transition-all",
+                    rincianTab === 'ASET_DIGITAL' ? "bg-blue-600 text-white shadow-md active:scale-95" : "bg-gray-50 text-gray-500 hover:bg-blue-50 active:scale-95"
+                  )}
+                >
+                  <i className="fa-solid fa-building-columns text-[10px] mr-1.5"></i> ASET DIGITAL
+                </button>
+                <button
+                  onClick={() => setRincianTab('LACI_KASIR')}
+                  className={cn(
+                    "flex-1 py-3 rounded-[1rem] text-[9px] font-black uppercase tracking-widest transition-all",
+                    rincianTab === 'LACI_KASIR' ? "bg-emerald-600 text-white shadow-md active:scale-95" : "bg-gray-50 text-gray-500 hover:bg-emerald-50 active:scale-95"
+                  )}
+                >
+                  <i className="fa-solid fa-cash-register text-[10px] mr-1.5"></i> LACI KASIR
+                </button>
+              </div>
+
+              <div className="p-3 space-y-3 mt-1 animate-in fade-in duration-300">
+                
+                {rincianTab === 'ASET_DIGITAL' && (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-4 rounded-[1.2rem] border border-blue-400 relative overflow-hidden text-center shadow-blue-900/10 shadow-lg">
+                      <span className="text-[9px] font-black text-blue-100 uppercase tracking-widest block mb-1 opacity-80 mt-1">TOTAL ASET DIGITAL</span>
+                      <span className="text-2xl font-black text-white tabular-nums tracking-tighter block mb-1">{formatRupiah(props.saldoBank)}</span>
+                    </div>
+
+                    <div className="bg-white p-1.5 rounded-[1.2rem] shadow-sm border border-gray-100 flex flex-col gap-1">
+                      {digitalWallets.map((wallet) => (
+                        <div key={wallet} className="flex justify-between items-center bg-slate-50/50 hover:bg-blue-50 transition-colors px-4 py-3 rounded-xl border border-transparent hover:border-blue-100">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-gray-100 shadow-sm shrink-0">
+                                <i className={cn("fa-solid text-xs", getIconForWallet(getWalletName(wallet)))}></i>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wide leading-none">{getWalletName(wallet)}</span>
+                              {(getWalletName(wallet).toUpperCase() === 'DOMPET PENAMPUNG' || getWalletName(wallet).toUpperCase() === 'NON TUNAI') && (
+                                <span className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-widest leading-none">Saldo Qris / Rekening Owner</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[12px] font-black text-blue-700 tabular-nums tracking-tight">{formatRupiah(props.walletBalances[wallet] || 0)}</span>
+                        </div>
+                      ))}
+                      {digitalWallets.length === 0 && (
+                        <div className="text-center py-6 text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">Belum ada dompet digital</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {rincianTab === 'LACI_KASIR' && (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="bg-[#051c5f] p-4 rounded-[1.2rem] text-white shadow-lg relative overflow-hidden border border-blue-400/20 text-center">
+                       <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 transform translate-x-1/2 -translate-y-1/2"></div>
+                       <div className="relative border-b border-white/10 pb-4 mb-4 mt-2">
+                           <span className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-300/80 block mb-1">TOTAL SALDO LACI KASIR</span>
+                           <h2 className="text-2xl font-black text-emerald-400 tracking-tighter mt-1 mb-0 drop-shadow-md">
+                             {formatRupiah(totalPendapatanBersih)}
+                           </h2>
+                       </div>
+                       
+                       <div className="relative opacity-60 text-center pb-1">
+                          <p className="text-[7px] font-bold text-blue-200 uppercase tracking-widest leading-relaxed italic">
+                            (MODAL + DIGITAL + AKSESORIS + ADMIN) - TARIK TUNAI
+                          </p>
+                       </div>
+                    </div>
+
+                    {/* KAS MASUK SECTION */}
+                    <div className="bg-white p-3 rounded-[1.2rem] shadow-sm border border-emerald-50">
+                      <div className="flex items-center gap-2.5 mb-3 px-1 mt-1">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+                          <i className="fa-solid fa-arrow-down-long text-[10px]"></i>
+                        </div>
+                        <div>
+                          <h4 className="text-[10px] font-black text-emerald-700 uppercase tracking-widest leading-none mt-0.5">UANG MASUK SEKARANG</h4>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        {[
+                          { label: 'Modal Tunai Kasir', val: kasModal },
+                          { label: 'Penjualan Digital', val: penjualanDigital },
+                          { label: 'Penjualan Aksesoris', val: props.totalAksesoris },
+                          { label: 'Total Admin Fee', val: props.totalAdmin }
+                        ].map((item, idx) => (
+                          <div key={idx} className="flex justify-between items-center py-2.5 px-3 bg-gray-50/80 rounded-xl hover:bg-emerald-50/50 transition-colors border border-transparent hover:border-emerald-100/50">
+                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest leading-none">{item.label}</span>
+                            <span className="text-[11px] font-black text-emerald-600 tabular-nums">{formatRupiah(item.val)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* KAS KELUAR SECTION */}
+                    <div className="bg-white p-3 rounded-[1.2rem] shadow-sm border border-red-50">
+                      <div className="flex items-center gap-2.5 mb-3 px-1 mt-1">
+                        <div className="w-7 h-7 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-600">
+                          <i className="fa-solid fa-arrow-up-long text-[10px]"></i>
+                        </div>
+                        <div>
+                          <h4 className="text-[10px] font-black text-red-700 uppercase tracking-widest leading-none mt-0.5">UANG KELUAR LACI</h4>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                         <div className="flex justify-between items-center py-2.5 px-3 bg-gray-50/80 rounded-xl hover:bg-red-50/50 transition-colors border border-transparent hover:border-red-100/50">
+                           <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest leading-none">Tarik Tunai Nasabah</span>
+                           <span className="text-[11px] font-black text-red-600 tabular-nums">-{formatRupiah(props.totalTarik)}</span>
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ACTION BUTTON */}
+                <button 
+                  onClick={() => {
+                    setShowRincian(false);
+                    props.setActiveView('view-laporan');
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 rounded-[1rem] shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 uppercase tracking-widest text-[9px] mt-2 mb-4"
+                >
+                  <i className="fa-solid fa-chart-simple text-[10px]"></i>
+                  Ke Laporan Lengkap
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="px-1.5 mb-2 grid grid-cols-5 gap-2 text-center">
         {[
@@ -1213,9 +1240,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
               { id: 'view-owner-absen', title: 'Absen', desc: 'Kehadiran kasir', icon: 'fa-fingerprint', color: 'bg-teal-500' },
               { id: 'view-owner-izin', title: 'Izin', desc: 'Kelola izin', icon: 'fa-calendar-day', color: 'bg-orange-500' },
               { id: 'view-owner-gaji', title: 'Gajih', desc: 'Data gaji kasir', icon: 'fa-dollar-sign', color: 'bg-green-600' },
-              { id: 'view-owner-saldo', title: 'Saldo', desc: 'Atur modal kasir', icon: 'fa-wallet', color: 'bg-emerald-600' },
               { id: 'view-owner-audit', title: 'Audit', desc: 'Audit uang laci', icon: 'fa-file-signature', color: 'bg-purple-600' },
-              { id: 'view-owner-kategori', title: 'Kategori', desc: 'Edit Kategori Trx', icon: 'fa-tags', color: 'bg-blue-600' },
               { id: 'view-owner-backup', title: 'Backup', desc: 'Backup & reset', icon: 'fa-database', color: 'bg-red-600' },
               { id: 'view-akun', title: 'Setting', desc: 'Pengaturan app', icon: 'fa-gear', color: 'bg-slate-600' },
             ].map((item) => (
@@ -1321,7 +1346,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
             </div>
 
             {/* Sub-View Content */}
-            <div className={cn("flex-1 overflow-y-auto custom-scrollbar bg-slate-50", props.isPc ? "p-8 flex flex-col items-center" : "p-5 pb-24")}>
+            <div className={cn("flex-1 overflow-y-auto custom-scrollbar bg-slate-50", props.isPc ? "p-8 flex flex-col items-center" : "p-5 pb-40")}>
               <div className={cn("w-full", props.isPc && "max-w-4xl")}>
             {activeOwnerSubView === 'monitor' && (
               <div className="space-y-4">
@@ -1500,17 +1525,17 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                     </div>
                   </div>
 
-                  {/* SALDO BANK */}
+                  {/* ASET DIGITAL */}
                   <div className="space-y-2.5 mb-4 pb-4 border-b border-gray-100">
                     <div className="flex items-center gap-2">
                       <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-[10px]">
                         <i className="fa-solid fa-building-columns"></i>
                       </div>
-                      <h4 className="text-[13px] font-black text-blue-700 uppercase tracking-widest">SALDO BANK</h4>
+                      <h4 className="text-[13px] font-black text-blue-700 uppercase tracking-widest">ASET DIGITAL</h4>
                     </div>
                     <div className="space-y-2 pl-7">
                       <div className="flex justify-between items-center">
-                        <p className="text-xs font-bold text-gray-500">Total Saldo Bank</p>
+                        <p className="text-xs font-bold text-gray-500">Total Aset Digital</p>
                         <span className="text-xs font-black text-blue-700">{formatRupiah(ownerSaldoBank)}</span>
                       </div>
                     </div>
@@ -1649,10 +1674,66 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                           <p className="text-[8px] font-black text-purple-200 uppercase tracking-widest mb-1">Selisih Audit</p>
                           {(() => {
                             const val = (parseInt(auditFisik.replace(/[^0-9]/g, '')) || 0) - ownerTotalLaci
-                            return <p className={cn("text-[11px] font-black", val >= 0 ? "text-green-300" : "text-red-300")}>{formatRupiah(val)}</p>
+                            return <p className={cn("text-[11px] font-black", val === 0 ? "text-green-300" : val > 0 ? "text-emerald-300" : "text-red-300")}>
+                                {val > 0 ? '+' : ''}{formatRupiah(val)}
+                              </p>
                           })()}
                         </div>
                       </div>
+
+                      {/* Visual Progress Bar for Audit Difference */}
+                      {(() => {
+                        const parsedInput = parseInt(auditFisik.replace(/[^0-9]/g, '')) || 0;
+                        const diff = parsedInput - ownerTotalLaci;
+                        const absDiff = Math.abs(diff);
+                        let barColor = "bg-white/20";
+                        let statusText = "MENUNGGU INPUT";
+                        if (parsedInput > 0) {
+                          if (diff === 0) {
+                            barColor = "bg-green-400";
+                            statusText = "MATCH (SESUAI)";
+                          } else if (absDiff <= 50000) {
+                            barColor = "bg-orange-400";
+                            statusText = "SELISIH KECIL";
+                          } else {
+                            barColor = "bg-red-400";
+                            statusText = "SELISIH FATAL / ALERT";
+                          }
+                        }
+
+                        // Cap percentage between 0 and 100 for the visual bar 
+                        // (We'll use a mapping: 50% is match. Less is short, more is over)
+                        let barWidth = 0;
+                        if (ownerTotalLaci > 0) {
+                            const ratio = parsedInput / ownerTotalLaci;
+                            barWidth = Math.min(Math.max((ratio) * 50, 0), 100);
+                        } else if (parsedInput > 0) {
+                            barWidth = 100;
+                        }
+
+                        return (
+                          <div className="mb-5 bg-black/20 p-3 rounded-xl border border-white/5">
+                            <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[8px] font-black text-white/50 uppercase tracking-widest">Akurasi Fisik vs Sistem</span>
+                                <span className={cn("text-[8px] font-black tracking-widest", 
+                                  diff === 0 && parsedInput > 0 ? "text-green-300" 
+                                  : absDiff <= 50000 && parsedInput > 0 ? "text-orange-300" 
+                                  : parsedInput > 0 ? "text-red-300" : "text-white/40"
+                                )}>
+                                  {statusText}
+                                </span>
+                            </div>
+                            <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden relative">
+                              {/* Center marker */}
+                              <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/30 z-10"></div>
+                              <div 
+                                className={cn("h-full transition-all duration-500 rounded-full", barColor)}
+                                style={{ width: `${barWidth}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        )
+                      })()}
 
                       <button 
                         onClick={handleSimpanAudit}
@@ -1919,98 +2000,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                     activeStoreId={props.activeStoreId === 'all' ? (props.pantauStoreId || 'all') : (props.activeStoreId || 'all')}
                   />
                 </div>
-              )}
-
-              {activeOwnerSubView === 'kategori' && (
-                <div className="space-y-4 animate-in slide-in-from-right duration-300">
-                  <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-                    <div className="mb-6 pb-5 border-b border-gray-100">
-                      <h4 className="text-[12px] font-black text-gray-800 uppercase tracking-widest mb-3">Tambah Kategori Baru</h4>
-                      <div className="space-y-3">
-                        <input type="text" id="newCatName" placeholder="Nama Kategori (Misal: SEA BANK)" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-[11px] font-bold outline-none" />
-                        
-                        <div className="grid grid-cols-2 gap-2">
-                           <button onClick={() => setNewCatFormat('nominal_admin')} className={cn("border rounded-xl p-2.5 text-center transition-all cursor-pointer", newCatFormat === 'nominal_admin' ? "bg-blue-600 text-white border-blue-600 shadow-md" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50")}>
-                             <p className="text-[10px] font-black uppercase">Format 1</p>
-                             <p className="text-[9px] font-bold opacity-90">NOMINAL & ADMIN</p>
-                           </button>
-
-                           <button onClick={() => setNewCatFormat('modal_jual')} className={cn("border rounded-xl p-2.5 text-center transition-all cursor-pointer", newCatFormat === 'modal_jual' ? "bg-blue-600 text-white border-blue-600 shadow-md" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50")}>
-                             <p className="text-[10px] font-black uppercase">Format 2</p>
-                             <p className="text-[9px] font-bold opacity-90">MODAL & HARGA JUAL</p>
-                           </button>
-                        </div>
-
-                        <button onClick={() => {
-                          const input = document.getElementById('newCatName') as HTMLInputElement;
-                          if (input && input.value.trim()) {
-                            const val = input.value.trim().toUpperCase();
-                            if (val.length < 2) return props.showToast("Nama terlalu pendek!");
-                            const cats = getCategories();
-                            if (cats.includes(val)) return props.showToast("Kategori sudah ada!");
-                            cats.push(val);
-                            localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
-                            const configs = getCategoriesConfig();
-                            configs[val] = newCatFormat;
-                            localStorage.setItem('alphaPro_categories_config', JSON.stringify(configs));
-                            input.value = '';
-                            props.showToast("Kategori Baru Ditambahkan");
-                          }
-                        }} className="w-full bg-emerald-500 text-white rounded-xl px-4 py-3 text-[11px] font-black uppercase shadow-sm hover:bg-emerald-600 transition-colors">
-                          <i className="fa-solid fa-plus mr-2"></i> Tambah Kategori
-                        </button>
-                      </div>
-                    </div>
-
-                    <h3 className="font-black text-[12px] text-gray-800 uppercase tracking-widest mb-1">Daftar Kategori Saat Ini</h3>
-                    <p className="text-[10px] font-bold text-gray-500 mb-4">Ubah posisi atau hapus kategori transaksi Anda.</p>
-                    <div className="space-y-2 mb-4">
-                      {getCategories().map((kat, idx) => (
-                        <div key={idx} className="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl border border-gray-100">
-                           <div className="flex items-center gap-3">
-                             <div className="flex flex-col gap-1">
-                               <button onClick={() => {
-                                 const cats = getCategories();
-                                 if (idx > 0) {
-                                   const tmp = cats[idx]; cats[idx] = cats[idx-1]; cats[idx-1] = tmp;
-                                   localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
-                                   props.showToast("Berhasil dipindah ke atas");
-                                 }
-                               }} className="text-gray-400 hover:text-blue-500"><i className="fa-solid fa-chevron-up text-[10px]"></i></button>
-                               <button onClick={() => {
-                                 const cats = getCategories();
-                                 if (idx < cats.length - 1) {
-                                   const tmp = cats[idx]; cats[idx] = cats[idx+1]; cats[idx+1] = tmp;
-                                   localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
-                                   props.showToast("Berhasil dipindah ke bawah");
-                                 }
-                               }} className="text-gray-400 hover:text-blue-500"><i className="fa-solid fa-chevron-down text-[10px]"></i></button>
-                             </div>
-                             <div>
-                               <span className="text-[11px] font-black text-gray-800 uppercase">{kat}</span>
-                               <p className="text-[9px] font-bold text-blue-600 uppercase">
-                                 Format: {getCategoriesConfig()[kat] === 'modal_jual' ? 'MODAL & JUAL' : 'NOMINAL & ADMIN'}
-                               </p>
-                             </div>
-                           </div>
-                           <button onClick={() => {
-                              props.onConfirm('Hapus Kategori', `Hapus kategori ${kat}?`, () => {
-                                const cats = getCategories().filter(c => c !== kat);
-                                localStorage.setItem('alphaPro_categories', JSON.stringify(cats));
-                                const configs = getCategoriesConfig();
-                                delete configs[kat];
-                                localStorage.setItem('alphaPro_categories_config', JSON.stringify(configs));
-                                props.showToast("Kategori Dihapus");
-                              });
-                           }} className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center hover:bg-red-200">
-                             <i className="fa-solid fa-trash text-[10px]"></i>
-                           </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+                )}
 
               {activeOwnerSubView === 'izin' && (
                 <div className="space-y-4">
@@ -2110,7 +2100,19 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                 }
 
                 // Filter transactions by selected Kasir and EXCLUDE non-sales (Isi Saldo, dsb)
-                let filteredTxs = props.transactions.filter(t => !t.kategori.startsWith('Isi'))
+                let filteredTxs = props.transactions.filter(t => {
+                  const katLower = t.kategori.toLowerCase();
+                  return !t.kategori.startsWith('Isi') && 
+                         !t.kategori.startsWith('Tambah') && 
+                         !katLower.includes('modal awal') && 
+                         !katLower.includes('modal tunai') && 
+                         !katLower.includes('inject saldo') && 
+                         !katLower.includes('mutasi') && 
+                         !katLower.includes('setor tunai') && 
+                         !katLower.includes('operan shift') &&
+                         !katLower.includes('tutup shift') &&
+                         t.kategori !== '___SYSTEM___';
+                })
                 if (grafikFilterKasir !== 'Semua') {
                   filteredTxs = filteredTxs.filter(t => t.kasir_id === grafikFilterKasir)
                 }
@@ -2378,7 +2380,20 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                       const performaData = Object.keys(props.kasirList)
                         .filter(id => id !== 'owner')
                         .map(kId => {
-                          const txs = props.transactions.filter(t => t.kasir_id === kId)
+                          const txs = props.transactions.filter(t => {
+                            const katLower = t.kategori.toLowerCase();
+                            const isSales = !t.kategori.startsWith('Isi') && 
+                                          !t.kategori.startsWith('Tambah') && 
+                                          !katLower.includes('modal awal') && 
+                                          !katLower.includes('modal tunai') && 
+                                          !katLower.includes('inject saldo') && 
+                                          !katLower.includes('mutasi') && 
+                                          !katLower.includes('setor tunai') && 
+                                          !katLower.includes('operan shift') &&
+                                          !katLower.includes('tutup shift') &&
+                                          t.kategori !== '___SYSTEM___';
+                            return t.kasir_id === kId && isSales;
+                          })
                           const monthTx = txs.filter(t => t.timestamp.startsWith(monthAgo.slice(0, 7)) || t.timestamp >= monthAgo)
                           return {
                             id: kId,
@@ -2428,7 +2443,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
                             onChange={e => setOwnerSaldoKategori(e.target.value)}
                             className="w-full bg-white border border-emerald-100 rounded-xl px-4 py-3 pr-10 text-xs font-black text-gray-900 outline-none appearance-none cursor-pointer"
                           >
-                            <option value="Isi Saldo Bank">🏦 Saldo Bank (Plafon)</option>
+                            <option value="Isi Saldo Bank">🏦 Aset Digital (Plafon)</option>
                             <option value="Isi Modal Tunai Kasir">💵 Modal Tunai Kasir</option>
                           </select>
                           <i className="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-emerald-400 pointer-events-none"></i>
@@ -2516,8 +2531,13 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
       {props.kasirRole !== 'owner' && (
         <div className="px-1.5 mb-4">
           <TransactionForm 
+            walletBalances={props.walletBalances}
             kategori={props.formKategori}
             setKategori={props.setFormKategori}
+            sumberDana={props.formSumberDana}
+            setSumberDana={props.setFormSumberDana}
+            tujuanDana={props.formTujuanDana}
+            setTujuanDana={props.setFormTujuanDana}
             nominal={props.formNominal}
             setNominal={props.setFormNominal}
             admin={props.formAdmin}
@@ -2595,7 +2615,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
         </div>
       )}
 
-      <div className="px-1.5 mb-3">
+      <div className="px-1.5 mb-3 pb-32">
         <div className="bg-white border border-gray-300 rounded-xl p-2 shadow-sm mb-2">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white">
@@ -2604,7 +2624,7 @@ const BerandaView: React.FC<BerandaViewProps> = (props) => {
             <div>
               <p className="text-[10px] text-black font-black uppercase tracking-tighter">TERAKHIR</p>
               <p className="text-[12px] font-black text-black leading-none mt-0.5">
-                {props.lastTx ? `${props.lastTx.kategori} • ${formatRupiah(props.lastTx.nominal)}` : 'Belum ada'}
+                {props.lastTx ? `${(props.lastTx.kategori === 'Transfer' || props.lastTx.kategori === 'Transfer Bank') && props.lastTx.sumber_dana ? getWalletName(props.lastTx.sumber_dana).toUpperCase() : props.lastTx.kategori.replace('Isi ', 'TAMBAH ').toUpperCase()} • ${formatRupiah(props.lastTx.nominal)}` : 'Belum ada'}
               </p>
             </div>
           </div>

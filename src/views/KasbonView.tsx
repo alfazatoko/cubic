@@ -1,644 +1,291 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Receipt, Plus, Trash2, Edit, Check, Search, Ban, X, Camera, ImageIcon, Loader2 } from "lucide-react";
-import { formatRupiah, formatInputRupiah, parseNominal, cn, compressImage } from "../lib/utils";
-import { supabase } from "../lib/supabase";
+import React, { useState, useEffect } from 'react'
+import { motion } from 'motion/react'
+import { ArrowLeft, Plus, Trash2, CheckCircle2, DollarSign, User, Calendar, FileText } from 'lucide-react'
+import { formatRupiah, parseNominal, formatInputRupiah, cn } from '../lib/utils'
 
-interface HutangRecord {
-  id: string;
-  nama: string;
-  nominal: number;
-  keterangan: string;
-  tanggal: string;
-  lunas: boolean;
-  tglLunas?: string;
-  photoUrl?: string;
-  kasir?: string;
+interface KasbonViewProps {
+  active: boolean
+  isPc: boolean
+  setActiveView: (view: string) => void
+  kasirName: string
+  showToast: (msg: string) => void
+  onConfirm: (title: string, message: string, onConfirm: () => void) => void
+  activeStoreId: string
 }
 
-const KasbonView: React.FC<{
-  active: boolean;
-  setActiveView: (v: string) => void;
-  kasirName: string;
-  showToast: (m: string) => void;
-  onConfirm: (t: string, m: string, c: () => void) => void;
-  isPc?: boolean;
-  activeStoreId: string;
-}> = ({ active, setActiveView, kasirName, showToast, onConfirm, isPc, activeStoreId }) => {
-  const [hutangList, setHutangList] = useState<HutangRecord[]>(() => {
-    const saved = localStorage.getItem(`alphaPro_${activeStoreId}_kasbon_list`);
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [searchText, setSearchText] = useState("");
-  const [showLunas, setShowLunas] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editItem, setEditItem] = useState<HutangRecord | null>(null);
+interface KasbonEntry {
+  id: string
+  name: string
+  nominal: number
+  tanggal: string
+  keterangan: string
+  status: 'BELUM LUNAS' | 'LUNAS'
+  created_at: string
+}
 
-  const [nama, setNama] = useState("");
-  const [nominalDisplay, setNominalDisplay] = useState("");
-  const [keterangan, setKeterangan] = useState("");
-  const [photoUrl, setPhotoUrl] = useState("");
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-  const namaRef = useRef<HTMLInputElement>(null);
-  const nominalRef = useRef<HTMLInputElement>(null);
-  const keteranganRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleKeyDown = (e: React.KeyboardEvent, nextRef?: React.RefObject<any>, isLast: boolean = false) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (isLast) {
-        handleSave();
-      } else {
-        nextRef?.current?.focus();
-      }
-    }
-  };
+export const KasbonView: React.FC<KasbonViewProps> = (props) => {
+  const [kasbonList, setKasbonList] = useState<KasbonEntry[]>([])
+  
+  // Form State
+  const [name, setName] = useState('')
+  const [nominalStr, setNominalStr] = useState('')
+  const [tanggal, setTanggal] = useState(() => new Date().toISOString().split('T')[0])
+  const [keterangan, setKeterangan] = useState('')
 
   useEffect(() => {
-    const loadData = () => {
-      if (activeStoreId && activeStoreId !== 'all') {
-        const saved = localStorage.getItem(`alphaPro_${activeStoreId}_kasbon_list`);
-        if (saved) {
-          setHutangList(JSON.parse(saved));
-        } else {
-          setHutangList([]);
-        }
-      } else {
-        setHutangList([]);
-      }
-    };
-
-    loadData();
-    window.addEventListener('alphaSyncUpdate', loadData);
-    return () => window.removeEventListener('alphaSyncUpdate', loadData);
-  }, [activeStoreId]);
-
-  useEffect(() => {
-    if (activeStoreId && activeStoreId !== 'all') {
-      localStorage.setItem(`alphaPro_${activeStoreId}_kasbon_list`, JSON.stringify(hutangList));
-
-      // Auto sync to supabase
-      const syncToCloud = async () => {
+    if (props.active) {
+      const stored = localStorage.getItem(`alphaPro_${props.activeStoreId}_kasbon_list`)
+      if (stored) {
         try {
-          await supabase.from('store_settings').upsert({
-            store_id: activeStoreId,
-            kasbon_data: hutangList,
-            updated_at: new Date().toISOString()
-          });
+          setKasbonList(JSON.parse(stored))
         } catch (e) {
-          console.error("Gagal sync Kasbon", e);
+          setKasbonList([])
         }
-      };
-
-      // Debounce sync slightly
-      const timer = setTimeout(syncToCloud, 1000);
-      return () => clearTimeout(timer);
+      } else {
+        setKasbonList([])
+      }
     }
-  }, [hutangList, activeStoreId]);
+  }, [props.active, props.activeStoreId])
 
-  const resetForm = () => {
-    setNama("");
-    setNominalDisplay("");
-    setKeterangan("");
-    setPhotoUrl("");
-    setEditItem(null);
-    setShowForm(false);
-  };
-
-  const handleSave = () => {
-    if (!nama.trim()) return showToast("Nama harus diisi");
-    const n = parseNominal(nominalDisplay);
-    if (n <= 0) return showToast("Nominal harus diisi");
-
-    if (editItem) {
-      setHutangList(hutangList.map(h => h.id === editItem.id ? { ...h, nama, nominal: n, keterangan, photoUrl } : h));
-    } else {
-      const newHutang: HutangRecord = {
-        id: Date.now().toString(),
-        nama,
-        nominal: n,
-        keterangan,
-        tanggal: new Date().toLocaleDateString('id-ID'),
-        lunas: false,
-        photoUrl,
-        kasir: kasirName
-      };
-      setHutangList([newHutang, ...hutangList]);
-    }
-    resetForm();
-  };
-
-  const handleDelete = (id: string) => {
-    onConfirm("HAPUS KASBON", "Yakin ingin menghapus data kasbon ini?", () => {
-      setHutangList(hutangList.filter(h => h.id !== id));
-      showToast("Data Berhasil Dihapus");
-    });
-  };
-
-  const handleLunas = (h: HutangRecord) => {
-    setHutangList(hutangList.map(item =>
-      item.id === h.id ? { ...item, lunas: !item.lunas, tglLunas: !item.lunas ? new Date().toLocaleDateString('id-ID') : undefined } : item
-    ));
-  };
-
-  const openEdit = (h: HutangRecord) => {
-    setEditItem(h);
-    setNama(h.nama);
-    setNominalDisplay(formatInputRupiah(h.nominal.toString()));
-    setKeterangan(h.keterangan || "");
-    setPhotoUrl(h.photoUrl || "");
-    if (!isPc) {
-      setShowForm(true);
-    }
-  };
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsCapturing(true);
-    try {
-      const compressedBase64 = await compressImage(file);
-      setPhotoUrl(compressedBase64);
-    } catch (err) {
-      console.error("Compression failed", err);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setPhotoUrl(event.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    } finally {
-      setIsCapturing(false);
-    }
-  };
-
-  const filteredHutang = useMemo(() => {
-    let list = hutangList;
-    if (!showLunas) list = list.filter(h => !h.lunas);
-    if (searchText) {
-      const q = searchText.toLowerCase();
-      list = list.filter(h => h.nama.toLowerCase().includes(q) || (h.keterangan || "").toLowerCase().includes(q));
-    }
-    return list;
-  }, [hutangList, showLunas, searchText]);
-
-  const totalHutang = hutangList.filter(h => !h.lunas).reduce((sum, h) => sum + h.nominal, 0);
-
-  if (!active) return null;
-
-  if (activeStoreId === 'all') {
-    const warningContent = (
-      <div className="flex-grow h-full flex items-center justify-center p-6">
-        <div className="p-6 text-center bg-amber-50 border border-amber-100 rounded-2xl max-w-md">
-          <i className="fa-solid fa-store-slash text-amber-500 text-3xl mb-3"></i>
-          <p className="text-xs font-black text-amber-800 uppercase tracking-widest">PILIH TOKO TERLEBIH DAHULU</p>
-          <p className="text-[10px] text-amber-600/80 font-bold uppercase mt-1">Silakan pilih salah satu toko di Beranda untuk melihat data Kasbon.</p>
-        </div>
-      </div>
-    );
-    if (isPc) {
-      return (
-        <div className={cn("flex-grow h-full flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden", active ? "flex" : "hidden")}>
-          {warningContent}
-        </div>
-      );
-    }
-    return (
-      <div className="page-view active bg-gray-50 hide-scrollbar pb-24">
-        <div className="px-4 pt-7 pb-4 border-b flex justify-center items-center bg-blue-600 text-white shadow-lg">
-          <h2 className="font-black text-xs uppercase tracking-widest leading-none">KASBON PELANGGAN</h2>
-        </div>
-        {warningContent}
-      </div>
-    );
+  const saveList = (list: KasbonEntry[]) => {
+    setKasbonList(list)
+    localStorage.setItem(`alphaPro_${props.activeStoreId}_kasbon_list`, JSON.stringify(list))
+    
+    // Attempt background sync to store settings in cloud database
+    // The App.tsx download/upload handles settings, sync can also be manual
   }
 
-  if (isPc) {
-    return (
-      <div className={cn("flex-grow h-full flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden", active ? "flex" : "hidden")}>
-        {/* Header Breadcrumb */}
-        <div className="flex items-center justify-between px-8 py-6 bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 shadow-sm flex-shrink-0">
-          <div>
-            <h1 className="text-base font-black text-slate-800 dark:text-slate-100 tracking-wide uppercase">Kasbon Pelanggan</h1>
-            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-0.5">Kelola catatan hutang-piutang pelanggan konter Anda</p>
-          </div>
-        </div>
+  const handleAddKasbon = (e: React.FormEvent) => {
+    e.preventDefault()
+    const nominal = parseNominal(nominalStr)
+    if (!name.trim() || nominal <= 0) {
+      props.showToast('HARAP ISI NAMA & NOMINAL YANG VALID!')
+      return
+    }
 
-        {/* Content Pane */}
-        <div className="flex-grow flex overflow-hidden p-8 gap-8">
+    const newEntry: KasbonEntry = {
+      id: 'kasbon_' + Date.now(),
+      name: name.trim().toUpperCase(),
+      nominal,
+      tanggal,
+      keterangan: keterangan.trim() || '-',
+      status: 'BELUM LUNAS',
+      created_at: new Date().toISOString()
+    }
 
-          {/* Left Column: Form & Summary */}
-          <div className="w-[380px] shrink-0 h-full flex flex-col gap-6 overflow-y-auto pr-2 scrollbar-thin">
-            {/* Total Piutang Card */}
-            <div className="bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 rounded-3xl p-6 shadow-sm shrink-0">
-              <span className="text-[9px] font-black text-red-500 dark:text-red-400 uppercase tracking-widest block mb-1">Total Piutang Belum Lunas</span>
-              <h3 className="text-2xl font-black text-red-600 dark:text-red-400">{formatRupiah(totalHutang)}</h3>
-            </div>
-
-            {/* Embedded Form */}
-            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 border border-slate-100 dark:border-slate-700 shadow-sm space-y-5">
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-700">
-                <h4 className="text-[10px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-widest">
-                  {editItem ? "Edit Kasbon Pelanggan" : "Tambah Kasbon Baru"}
-                </h4>
-                {editItem && (
-                  <button onClick={resetForm} className="text-[9px] font-black text-rose-500 hover:underline uppercase tracking-wider">
-                    Batal Edit
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-1">Nama Pelanggan</label>
-                  <input
-                    ref={namaRef}
-                    value={nama}
-                    onChange={e => setNama(e.target.value)}
-                    placeholder="Masukkan nama..."
-                    onKeyDown={(e) => handleKeyDown(e, nominalRef)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-1">Nominal Hutang (RP)</label>
-                  <input
-                    ref={nominalRef}
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="0"
-                    value={nominalDisplay}
-                    onChange={(e) => setNominalDisplay(formatInputRupiah(e.target.value))}
-                    onKeyDown={(e) => handleKeyDown(e, keteranganRef)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-black text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800/20 tracking-wider"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 ml-1">Keterangan</label>
-                  <textarea
-                    ref={keteranganRef}
-                    value={keterangan}
-                    onChange={e => setKeterangan(e.target.value)}
-                    placeholder="Masukkan keterangan..."
-                    rows={2}
-                    onKeyDown={(e) => handleKeyDown(e, undefined, true)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800/20 resize-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col items-center justify-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl py-3 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:border-blue-300 transition-all group">
-                    {isCapturing ? <Loader2 className="w-4 h-4 animate-spin text-blue-600" /> : <Camera className="w-4 h-4 text-slate-400 group-hover:text-blue-600" />}
-                    <span className="text-[9px] font-black text-slate-400 group-hover:text-blue-700 uppercase tracking-widest">Kamera</span>
-                    <input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />
-                  </label>
-                  <label className="flex flex-col items-center justify-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-300 transition-all group">
-                    <ImageIcon className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
-                    <span className="text-[9px] font-black text-slate-400 group-hover:text-slate-700 uppercase tracking-widest">Galeri</span>
-                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                  </label>
-                </div>
-
-                {photoUrl && (
-                  <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-inner bg-slate-50 dark:bg-slate-900">
-                    <img src={photoUrl} alt="Preview" className="w-full h-full object-cover" />
-                    <button onClick={() => setPhotoUrl("")} className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1.5 shadow-lg active:scale-90 transition-all">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-
-                <button
-                  onClick={handleSave}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black py-4 rounded-xl shadow-md transition-all active:scale-95 uppercase tracking-widest"
-                  style={{ color: '#ffffff' }}
-                >
-                  {editItem ? "Simpan Perubahan Kasbon" : "Simpan Data Kasbon"}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Grid and List */}
-          <div className="flex-grow h-full flex flex-col gap-6 overflow-hidden">
-            {/* Search & Filter Bar */}
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center shrink-0">
-              <div className="relative flex-1 w-full">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  value={searchText}
-                  onChange={e => setSearchText(e.target.value)}
-                  placeholder="Cari nama pelanggan atau keterangan..."
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-bold outline-none focus:ring-4 focus:ring-slate-100 dark:focus:ring-slate-800 transition-all"
-                />
-              </div>
-
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Tampilkan Lunas:</span>
-                <button
-                  onClick={() => setShowLunas(!showLunas)}
-                  className={cn(
-                    "px-4 py-3 rounded-2xl border font-black text-[10px] tracking-wider transition-all",
-                    showLunas
-                      ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-100 dark:shadow-none"
-                      : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                  )}
-                  style={showLunas ? { color: '#ffffff' } : undefined}
-                >
-                  {showLunas ? "LUNAS: ON" : "LUNAS: OFF"}
-                </button>
-              </div>
-            </div>
-
-            {/* Grid Container */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin pr-1 pb-6">
-              {filteredHutang.length === 0 ? (
-                <div className="text-center py-24 text-slate-400 dark:text-slate-600 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-3xl">
-                  <Receipt className="w-16 h-16 mx-auto mb-4 text-slate-200 dark:text-slate-700" />
-                  <p className="text-xs font-black uppercase tracking-wider">Belum ada catatan kasbon</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                  {filteredHutang.map(h => (
-                    <div key={h.id} className={cn("bg-white dark:bg-slate-800 rounded-3xl p-5 border shadow-sm transition-all flex flex-col justify-between", h.lunas ? 'border-emerald-100 dark:border-emerald-950 bg-emerald-50/10' : 'border-slate-100 dark:border-slate-700')}>
-                      <div>
-                        <div className="flex justify-between items-start mb-3 gap-2">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-black text-sm text-slate-800 dark:text-slate-100 truncate">{h.nama}</h4>
-                            {h.keterangan && <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{h.keterangan}</p>}
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className={cn("font-black text-sm tracking-wide", h.lunas ? 'text-emerald-600 line-through dark:text-emerald-500' : 'text-rose-600')}>
-                              {formatRupiah(h.nominal)}
-                            </p>
-                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-tighter mt-1 block">{h.tanggal}</span>
-                            {h.kasir && <span className="text-[8px] bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded font-black mt-1 inline-block uppercase tracking-widest">{h.kasir}</span>}
-                          </div>
-                        </div>
-
-                        {h.photoUrl && (
-                          <div
-                            className="w-full aspect-video rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 mb-4 overflow-hidden cursor-pointer group/photo relative"
-                            onClick={() => setPreviewImage(h.photoUrl!)}
-                          >
-                            <img src={h.photoUrl} alt="Struk" className="w-full h-full object-cover transition-transform group-hover/photo:scale-105" />
-                            <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-black uppercase tracking-widest">
-                              <i className="fa-solid fa-magnifying-glass-plus mr-2"></i> Perbesar Foto
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-700/50 mt-4">
-                        <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                          {h.lunas ? `LUNAS: ${h.tglLunas}` : "STATUS: BELUM LUNAS"}
-                        </span>
-
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleLunas(h)}
-                            className={cn(
-                              "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-colors border",
-                              h.lunas
-                                ? 'bg-orange-50 border-orange-100 text-orange-600 dark:bg-orange-950/20 dark:border-orange-900/30 dark:text-orange-400'
-                                : 'bg-emerald-50 border-emerald-100 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-400'
-                            )}
-                          >
-                            {h.lunas ? <Ban className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />} {h.lunas ? "Batal Lunas" : "Set Lunas"}
-                          </button>
-
-                          <button onClick={() => openEdit(h)} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors">
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleDelete(h.id)} className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 transition-colors">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Large Preview Modal */}
-        {previewImage && (
-          <div className="absolute inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-            <button className="absolute top-6 right-6 text-white bg-white/10 p-3 rounded-full hover:bg-white/20 transition-colors">
-              <X className="w-6 h-6" />
-            </button>
-            <img src={previewImage} alt="Large preview" className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" />
-          </div>
-        )}
-      </div>
-    )
+    const updated = [newEntry, ...kasbonList]
+    saveList(updated)
+    props.showToast('KASBON BERHASIL DITAMBAHKAN!')
+    
+    // Clear Form
+    setName('')
+    setNominalStr('')
+    setKeterangan('')
   }
+
+  const handleToggleLunas = (id: string, currentStatus: string) => {
+    const updated = kasbonList.map(item => {
+      if (item.id === id) {
+        return {
+          ...item,
+          status: (currentStatus === 'BELUM LUNAS' ? 'LUNAS' : 'BELUM LUNAS') as 'LUNAS' | 'BELUM LUNAS'
+        }
+      }
+      return item
+    })
+    saveList(updated)
+    props.showToast(`KASBON DISET SEBAGAI ${currentStatus === 'BELUM LUNAS' ? 'LUNAS' : 'BELUM LUNAS'}!`)
+  }
+
+  const handleDelete = (id: string, itemAndName: string) => {
+    props.onConfirm('HAPUS DATA KASBON', `Hapus kasbon ${itemAndName}?`, () => {
+      const updated = kasbonList.filter(item => item.id !== id)
+      saveList(updated)
+      props.showToast('KASBON BERHASIL DIHAPUS!')
+    })
+  }
+
+  // Statistics
+  const totalBelumLunas = kasbonList
+    .filter(k => k.status === 'BELUM LUNAS')
+    .reduce((sum, item) => sum + item.nominal, 0)
 
   return (
-    <div className="page-view active bg-gray-50 hide-scrollbar pb-24">
-      <div className="px-4 pt-7 pb-4 border-b flex justify-between items-center bg-blue-600 text-white shadow-lg">
+    <div className={cn(`flex-1 flex flex-col h-full overflow-hidden bg-slate-950 font-sans text-white ${props.isPc ? 'p-6' : 'p-4'}`, !props.active && 'hidden')}>
+      {/* Top Bar */}
+      <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-800/80 shrink-0">
         <button
-          onClick={() => setActiveView('view-beranda')}
-          className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all border border-white/10 active:scale-90"
+          onClick={() => props.setActiveView('view-beranda')}
+          className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white transition-all active:scale-90"
         >
-          <i className="fa-solid fa-arrow-left"></i>
+          <ArrowLeft size={16} />
         </button>
-        <div className="text-center">
-          <h2 className="font-black text-xs uppercase tracking-widest leading-none">KASBON PELANGGAN</h2>
-          <p className="text-[8px] text-white/50 mt-1 font-bold">APLIKASI CUBIC</p>
-        </div>
-        <button
-          onClick={() => setActiveView('view-beranda')}
-          className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all border border-white/10 active:scale-90"
-        >
-          <i className="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-
-      <div className="px-5 py-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-b-[2rem] shadow-lg mb-4 flex justify-between items-center">
         <div>
-          <h2 className="font-bold text-sm tracking-wide">Data Kasbon</h2>
-          <p className="text-blue-100 text-[10px] opacity-90">Kelola hutang pelanggan</p>
-        </div>
-        <button onClick={() => { resetForm(); setShowForm(true); }} className="w-10 h-10 rounded-2xl bg-white text-blue-600 flex items-center justify-center shadow-lg active:scale-90 transition-all">
-          <Plus className="w-5 h-5" />
-        </button>
-      </div>
-
-      <div className="px-5 py-4">
-        <div className="bg-white rounded-2xl p-4 shadow-sm mb-4 border border-blue-100">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Total Piutang (Belum Lunas)</p>
-          <h3 className="text-xl font-black text-red-600">{formatRupiah(totalHutang)}</h3>
-        </div>
-
-        <div className="flex items-center gap-2 mb-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              placeholder="Cari nama atau keterangan..."
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:border-blue-400 transition-all"
-            />
-          </div>
-          <button
-            onClick={() => setShowLunas(!showLunas)}
-            className={cn(
-              "px-3 py-2.5 rounded-xl border font-bold text-[10px] transition-all",
-              showLunas ? "bg-green-50 border-green-200 text-green-600" : "bg-white border-gray-200 text-gray-500"
-            )}
-          >
-            {showLunas ? "LUNAS: ON" : "LUNAS: OFF"}
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          {filteredHutang.length === 0 ? (
-            <div className="text-center py-20 text-gray-400">
-              <Receipt className="w-12 h-12 mx-auto mb-3 text-gray-200" />
-              <p className="text-sm font-medium">Belum ada data kasbon</p>
-            </div>
-          ) : (
-            filteredHutang.map(h => (
-              <div key={h.id} className={cn("bg-white rounded-2xl p-4 shadow-sm border transition-all", h.lunas ? 'border-green-100 bg-green-50/30' : 'border-gray-100')}>
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-sm text-gray-800 truncate">{h.nama}</h4>
-                    {h.keterangan && <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{h.keterangan}</p>}
-                  </div>
-                  <div className="text-right ml-3">
-                    <p className={cn("font-black text-sm", h.lunas ? 'text-green-600 line-through' : 'text-red-600')}>
-                      {formatRupiah(h.nominal)}
-                    </p>
-                    <span className="text-[9px] text-gray-400 font-medium block mt-1">{h.tanggal}</span>
-                    {h.kasir && <span className="text-[8px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-black mt-1 inline-block uppercase tracking-widest">{h.kasir}</span>}
-                  </div>
-                </div>
-
-                {h.photoUrl && (
-                  <div
-                    className="w-full aspect-video rounded-xl bg-gray-50 border border-gray-100 mb-3 overflow-hidden cursor-pointer"
-                    onClick={() => setPreviewImage(h.photoUrl!)}
-                  >
-                    <img src={h.photoUrl} alt="Struk" className="w-full h-full object-cover" />
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                  <span className="text-[9px] text-gray-400">
-                    {h.lunas ? `Lunas: ${h.tglLunas}` : "Belum Lunas"}
-                  </span>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleLunas(h)} className={cn("px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1", h.lunas ? 'bg-orange-50 text-orange-600' : 'bg-green-50 text-green-600')}>
-                      {h.lunas ? <Ban className="w-3 h-3" /> : <Check className="w-3 h-3" />} {h.lunas ? "Batal" : "Lunas"}
-                    </button>
-                    <button onClick={() => openEdit(h)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600">
-                      <Edit className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => handleDelete(h.id)} className="p-1.5 rounded-lg bg-red-50 text-red-600">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
+          <h3 className="font-extrabold text-[11px] text-blue-400 uppercase tracking-widest leading-none">
+            Catatan Kasbon & Piutang
+          </h3>
+          <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+            Daftar Piutang Pelanggan & Karyawan
+          </p>
         </div>
       </div>
 
-      {showForm && (
-        <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={resetForm}>
-          <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-2xl animate-in slide-in-from-bottom duration-300" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-black text-black text-[11px] flex items-center gap-2 uppercase tracking-tighter">
-                <i className="fa-solid fa-file-invoice-dollar text-blue-700"></i> {editItem ? "EDIT KASBON" : "TAMBAH KASBON BARU"}
-              </h3>
-              <button onClick={resetForm} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-all">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="space-y-3 mb-5">
-              <div>
-                <label className="block text-[9px] font-black text-black mb-1 uppercase tracking-widest">NAMA PELANGGAN</label>
+      {/* Main Grid: Form + List */}
+      <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 gap-6 pb-14">
+        
+        {/* Form Column */}
+        <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 space-y-4 h-fit md:col-span-1">
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            <Plus size={12} className="text-blue-500" />
+            <span>Tambah Piutang Kasbon</span>
+          </h4>
+
+          <form onSubmit={handleAddKasbon} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[8px] font-black text-slate-500 uppercase tracking-wider pl-1 block font-mono">Nama Debitur</label>
+              <div className="relative">
+                <User size={14} className="absolute left-3.5 top-3 text-slate-600" />
                 <input
-                  ref={namaRef}
-                  value={nama}
-                  onChange={e => setNama(e.target.value)}
-                  placeholder="Masukkan nama..."
-                  onKeyDown={(e) => handleKeyDown(e, nominalRef)}
-                  className="form-input-modern w-full"
-                />
-              </div>
-              <div>
-                <label className="block text-[9px] font-black text-black mb-1 uppercase tracking-widest">NOMINAL HUTANG</label>
-                <input
-                  ref={nominalRef}
                   type="text"
-                  inputMode="numeric"
-                  placeholder="0"
-                  value={nominalDisplay}
-                  onChange={(e) => setNominalDisplay(formatInputRupiah(e.target.value))}
-                  onKeyDown={(e) => handleKeyDown(e, keteranganRef)}
-                  className="form-input-modern w-full"
+                  required
+                  placeholder="CONTOH: BUDI / KARYAWAN A"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white uppercase placeholder-slate-700 font-extrabold focus:outline-none"
                 />
               </div>
-              <div>
-                <label className="block text-[9px] font-black text-black mb-1 uppercase tracking-widest">KETERANGAN</label>
-                <textarea
-                  ref={keteranganRef}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[8px] font-black text-slate-500 uppercase tracking-wider pl-1 block font-mono">Nominal Pinjaman</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-2.5 text-slate-500 font-black text-[10px]">RP.</span>
+                <input
+                  type="text"
+                  required
+                  placeholder="50.000"
+                  value={nominalStr}
+                  onChange={e => setNominalStr(formatInputRupiah(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-12 pr-4 py-2.5 text-xs font-black text-white placeholder-slate-700 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[8px] font-black text-slate-500 uppercase tracking-wider pl-1 block font-mono">Tanggal Transaksi</label>
+              <div className="relative">
+                <Calendar size={14} className="absolute left-3.5 top-3 text-slate-600" />
+                <input
+                  type="date"
+                  required
+                  value={tanggal}
+                  onChange={e => setTanggal(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[8px] font-black text-slate-500 uppercase tracking-wider pl-1 block font-mono">Keterangan / Item</label>
+              <div className="relative">
+                <FileText size={14} className="absolute left-3.5 top-3 text-slate-600" />
+                <input
+                  type="text"
+                  placeholder="Contoh: Pinjaman kasir / Beli pulsa"
                   value={keterangan}
                   onChange={e => setKeterangan(e.target.value)}
-                  placeholder="Contoh: Pinjam saldo bank, belum bayar..."
-                  rows={2}
-                  onKeyDown={(e) => handleKeyDown(e, undefined, true)}
-                  className="form-input-modern w-full resize-none"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-700 font-bold focus:outline-none"
                 />
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col items-center justify-center gap-1.5 bg-gray-50 border border-dashed border-gray-300 rounded-xl py-3 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all group">
-                  {isCapturing ? <Loader2 className="w-5 h-5 animate-spin text-blue-600" /> : <Camera className="w-5 h-5 text-gray-400 group-hover:text-blue-600" />}
-                  <span className="text-[9px] font-black text-gray-400 group-hover:text-blue-700 uppercase tracking-widest">Kamera</span>
-                  <input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />
-                </label>
-                <label className="flex flex-col items-center justify-center gap-1.5 bg-gray-50 border border-dashed border-gray-300 rounded-xl py-3 cursor-pointer hover:bg-gray-100 hover:border-gray-400 transition-all group">
-                  <ImageIcon className="w-5 h-5 text-gray-400 group-hover:text-gray-600" />
-                  <span className="text-[9px] font-black text-gray-400 group-hover:text-gray-700 uppercase tracking-widest">Galeri</span>
-                  <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                </label>
-              </div>
+            <button
+              type="submit"
+              className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] tracking-widest uppercase rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-blue-600/10 active:scale-95 transition-all"
+            >
+              <Plus size={13} className="stroke-[3]" />
+              <span>Simpan Kasbon</span>
+            </button>
+          </form>
+        </div>
 
-              {photoUrl && (
-                <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-gray-200 shadow-inner bg-gray-50">
-                  <img src={photoUrl} alt="Preview" className="w-full h-full object-cover" />
-                  <button onClick={() => setPhotoUrl("")} className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1.5 shadow-lg active:scale-90 transition-all">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+        {/* List Column */}
+        <div className="md:col-span-2 flex flex-col overflow-hidden h-full">
+          {/* Summary Box */}
+          <div className="bg-red-950/20 border border-red-900/30 rounded-2xl p-4 mb-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[7px] font-black text-red-400 tracking-widest uppercase leading-none mb-1">TOTAL BELUM DIBAYAR</p>
+              <h4 className="text-lg font-black text-white">{formatRupiah(totalBelumLunas)}</h4>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-red-950/40 border border-red-900/40 flex items-center justify-center text-red-400 shrink-0">
+              <DollarSign size={16} />
+            </div>
+          </div>
+
+          {/* List Content */}
+          <div className="flex-1 bg-slate-900/10 border border-slate-805 rounded-2xl overflow-hidden flex flex-col min-h-0">
+            <div className="p-3.5 bg-slate-950/40 border-b border-slate-800/60 font-black text-[8px] uppercase tracking-wider text-slate-500 select-none">
+              Daftar Catatan Piutang
+            </div>
+
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40 pr-1 hide-scrollbar">
+              {kasbonList.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-1.5 py-10 text-center">
+                  <FileText size={20} className="text-slate-700" />
+                  <p className="text-[9px] font-bold uppercase tracking-wider">Tidak ada catatan kasbon</p>
                 </div>
+              ) : (
+                kasbonList.map(item => (
+                  <div key={item.id} className="p-4 flex items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-black text-white tracking-wider truncate uppercase">{item.name}</span>
+                        <span className={`text-[6px] px-1.5 py-0.5 rounded-md font-black tracking-widest shrink-0 ${
+                          item.status === 'LUNAS'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-550/20'
+                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        }`}>
+                          {item.status}
+                        </span>
+                      </div>
+                      <p className="text-xs font-black text-blue-400">{formatRupiah(item.nominal)}</p>
+                      <p className="text-[8px] text-slate-500 font-bold uppercase mt-1 tracking-wider">
+                        {item.tanggal} • {item.keterangan}
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={() => handleToggleLunas(item.id, item.status)}
+                        className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center border transition-all active:scale-90 ${
+                          item.status === 'LUNAS'
+                            ? 'bg-amber-950/30 border-amber-900/30 text-amber-500 hover:bg-slate-800'
+                            : 'bg-emerald-950/30 border-emerald-900/30 text-emerald-400 hover:bg-slate-850'
+                        }`}
+                        title={item.status === 'LUNAS' ? 'Set Belum Lunas' : 'Tandai Lunas'}
+                      >
+                        <CheckCircle2 size={13} />
+                      </button>
+
+                      <button
+                        onClick={() => handleDelete(item.id, `${item.name} (${formatRupiah(item.nominal)})`)}
+                        className="w-7.5 h-7.5 rounded-lg bg-red-950/30 border border-red-900/30 hover:bg-red-900/40 text-red-400 hover:text-red-300 flex items-center justify-center transition-all active:scale-95"
+                        title="Hapus"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
-            <button onClick={handleSave} className="w-full bg-blue-700 text-white text-[10px] font-black py-2.5 rounded-lg hover:bg-blue-800 shadow-md transition-all active:scale-95 uppercase tracking-widest">
-              SIMPAN DATA KASBON
-            </button>
           </div>
-        </div>
-      )}
 
-      {previewImage && (
-        <div className="absolute inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-          <button className="absolute top-6 right-6 text-white bg-white/20 p-2 rounded-full backdrop-blur-md">
-            <X className="w-6 h-6" />
-          </button>
-          <img src={previewImage} alt="Large preview" className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl" />
         </div>
-      )}
+
+      </div>
     </div>
-  );
-};
+  )
+}
 
-export default KasbonView;
+export default KasbonView

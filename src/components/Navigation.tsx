@@ -18,7 +18,7 @@ const Navigation: React.FC<NavigationProps> = ({ activeView, setActiveView }) =>
   const items = [
     { id: 'view-beranda', label: 'Transaksi', Icon: Home },
     { id: 'view-transaksi', label: 'Riwayat', Icon: Clock },
-    { id: 'view-isi-saldo', label: 'Isi Saldo', Icon: Wallet },
+    { id: 'view-isi-saldo', label: 'Aset Digital', Icon: Wallet },
     { id: 'view-laporan', label: 'Laporan', Icon: BarChart2 },
     { id: 'view-akun', label: 'Akun', Icon: User },
   ]
